@@ -1015,7 +1015,7 @@ const STREAK_MAX  = 5;     // cap (x1 .. x5)
    so your thumb doesn't cover the landing spot. Only applies on touch
    input (mouse drags 1:1). Default 4 cells — finger sits just below the
    grid, piece floats clearly above. */
-let TOUCH_LIFT = 3;
+let TOUCH_LIFT = 3.5;
 
 /* TOUCH_GAIN_X — horizontal velocity gain on touch drags. 1.0 = pure
    1:1 (the piece moves exactly with your finger). 1.5 means a small
@@ -1030,7 +1030,7 @@ let TOUCH_LIFT = 3;
    IMPORTANT: the ghost preview applies the SAME scaling, so what you
    see is what gets placed — finger drives intent, but intent is
    "the spot the scaled piece is showing." */
-let TOUCH_GAIN_X = 2;
+let TOUCH_GAIN_X = 1.5;
 
 /* SKINS ---------------------------------------------------------------
    Two kinds for now: "blocks" (recolors every placed piece) and "bg"
