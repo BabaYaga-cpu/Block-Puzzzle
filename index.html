@@ -962,11 +962,6 @@
       <span id="xoff-value">0.75</span> cells
     </label>
     <input type="range" id="xoff-slider" min="-2" max="2" step="0.25" value="0.75">
-    <label style="margin-top:10px;">
-      <span>X multiplier</span>
-      <span id="xmult-value">1.3</span>x
-    </label>
-    <input type="range" id="xmult-slider" min="1" max="2" step="0.05" value="1.3">
   </div>
 
   <div id="drag-layer"></div>
@@ -1095,16 +1090,6 @@ let TOUCH_LIFT = 3;
    "the spot the shifted piece is showing." */
 let TOUCH_OFFSET_X = 0.75;
 
-/* TOUCH_MULT_X — horizontal multiplier applied around the BOARD CENTER
-   (a fixed point on screen — NOT the drag start, which is what made the
-   old velocity gain feel drifty). With mult 1.3, sweeping every column
-   only needs your finger to cover 1/1.3 of the board width, centered on
-   the board — so reaching the LEFTMOST columns no longer drags your
-   finger down-left into the hold slot's hitbox (hold detection is on
-   the raw finger). The mapping is the same fixed linear function of
-   finger X on every frame of every drag, so it stays predictable.
-   Applied first, then TOUCH_OFFSET_X is added on top. 1.0 = off. */
-let TOUCH_MULT_X = 1.3;
 
 /* SKINS ---------------------------------------------------------------
    Two kinds for now: "blocks" (recolors every placed piece) and "bg"
@@ -1556,12 +1541,6 @@ function bindUI() {
   xoffSlider.addEventListener("input", () => {
     TOUCH_OFFSET_X = parseFloat(xoffSlider.value);
     xoffValue.textContent = xoffSlider.value;
-  });
-  const xmultSlider = document.getElementById("xmult-slider");
-  const xmultValue  = document.getElementById("xmult-value");
-  xmultSlider.addEventListener("input", () => {
-    TOUCH_MULT_X = parseFloat(xmultSlider.value);
-    xmultValue.textContent = xmultSlider.value;
   });
   window.addEventListener("touchstart", () => {
     liftWrap.classList.add("show");
@@ -2233,22 +2212,14 @@ function onDragMove(e) {
   if (!drag) return;
   const { piece, grabDR, grabDC, floatEl, cs, gap, liftPx, isTouch } = drag;
 
-  // X MAPPING: effectiveX is a fixed linear function of the raw finger
-  // X — identical on every frame of every drag (nothing is anchored to
-  // where the drag started, which is what drifted on phones).
-  //   step 1: multiply around the BOARD CENTER (TOUCH_MULT_X). The
-  //           finger only sweeps 1/mult of the board width to reach
-  //           every column, so left-column placements keep the finger
-  //           well clear of the hold slot's hitbox.
-  //   step 2: add the constant TOUCH_OFFSET_X shift (cells), the
-  //           horizontal analog of liftPx.
-  // Both globals are read each frame so the debug sliders affect an
-  // active drag in real time.
+  // X: the exact horizontal analog of touch lift — the raw finger plus
+  // a CONSTANT shift (TOUCH_OFFSET_X cells). 1:1 movement, no scaling,
+  // no dependence on where the drag started. The piece is rigidly glued
+  // TOUCH_LIFT cells above and TOUCH_OFFSET_X cells beside your finger
+  // for the whole drag. (Read from the global each frame so the debug
+  // slider affects an active drag live.)
   const br = boardEl.getBoundingClientRect();
-  const boardCX = br.left + br.width / 2;
-  const multX = isTouch ? TOUCH_MULT_X : 1;
-  const offPx = isTouch ? TOUCH_OFFSET_X * cs : 0;
-  const effectiveX = boardCX + (e.clientX - boardCX) * multX + offPx;
+  const effectiveX = e.clientX + (isTouch ? TOUCH_OFFSET_X * cs : 0);
 
   // position the floating clone so the grabbed sub-cell sits under the
   // (virtual) pointer position, then apply the vertical lift
@@ -2303,11 +2274,22 @@ function onDragMove(e) {
   const HOLD_INSET = 0.12;
   const insetX = hb.width  * HOLD_INSET;
   const insetY = hb.height * HOLD_INSET;
+  // The hold test tracks the PIECE, not the raw finger — the same
+  // treatment touch lift gives the board ghost. With TOUCH_LIFT the
+  // finger rides ~3 cells BELOW the floating piece, so placing on the
+  // bottom-left board rows physically parks the finger on top of the
+  // hold slot; testing the finger there hijacked legitimate left-side
+  // placements. Testing the lifted/offset piece point means hold only
+  // triggers when the piece is VISIBLY over the slot — what you see is
+  // what you drop, for the board and the hold slot alike. (On mouse,
+  // lift/offset are 0, so this is identical to the old finger test.)
+  const pieceX = effectiveX;
+  const pieceY = e.clientY - liftPx;
   const overHold =
-    e.clientX >= hb.left   + insetX &&
-    e.clientX <= hb.right  - insetX &&
-    e.clientY >= hb.top    + insetY &&
-    e.clientY <= hb.bottom - insetY;
+    pieceX >= hb.left   + insetX &&
+    pieceX <= hb.right  - insetX &&
+    pieceY >= hb.top    + insetY &&
+    pieceY <= hb.bottom - insetY;
   holdEl.classList.remove("drop-ok", "drop-bad");
   drag.overHold = false;
   if (overHold) {
