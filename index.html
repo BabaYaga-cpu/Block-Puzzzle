@@ -776,12 +776,43 @@
     pointer-events: none;
   }
   .map-sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+  /* zone chest */
+  .map-chest {
+    position: absolute; z-index: 2; transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    cursor: pointer;
+  }
+  .map-chest .box { font-size: 30px; filter: grayscale(.7) brightness(.75); }
+  .map-chest.ready .box { filter: none; animation: chestpulse 1.6s ease-in-out infinite; }
+  .map-chest.claimed .box { filter: grayscale(1) brightness(.5); }
+  .map-chest .lbl {
+    font-size: 9px; font-weight: 700; letter-spacing: .08em;
+    color: var(--text-dim);
+    background: rgba(0,0,0,.35);
+    padding: 1px 7px; border-radius: 7px;
+  }
+  .map-chest.ready .lbl { color: var(--gold); }
+  @keyframes chestpulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+  /* big-clear screen flash + all-clear board glow */
+  .screen-flash {
+    position: fixed; inset: 0; z-index: 80;
+    pointer-events: none;
+    background: #fff;
+    animation: sflash .3s ease-out forwards;
+  }
+  @keyframes sflash { 0% { opacity: .4; } 100% { opacity: 0; } }
+  .board-wrap.allclear .board { animation: allclearglow .8s ease; }
+  @keyframes allclearglow {
+    0%   { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+    25%  { box-shadow: 0 0 42px 8px rgba(255,228,150,.55); }
+    100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+  }
   .map-bottom {
-    display: flex; gap: 8px;
+    display: flex; gap: 8px; flex-wrap: wrap;
     padding: 12px 20px max(20px, env(safe-area-inset-bottom));
     max-width: 460px; width: 100%; margin: 0 auto;
   }
-  .map-bottom .iconbtn { flex: 1; padding: 12px; font-size: 14px; }
+  .map-bottom .iconbtn { flex: 1 1 28%; padding: 12px 6px; font-size: 13px; }
 
   /* ---- LEVEL INTRO / END MODALS ---------------------------------------- */
   .level-badge {
@@ -1038,7 +1069,9 @@
     </div>
     <div class="map-scroll" id="map-scroll"><div class="map-path" id="map-path"></div></div>
     <div class="map-bottom">
-      <button class="iconbtn" id="map-relax">Relax Mode</button>
+      <button class="iconbtn" id="map-daily">Daily</button>
+      <button class="iconbtn" id="map-gauntlet">Gauntlet</button>
+      <button class="iconbtn" id="map-relax">Relax</button>
       <button class="iconbtn" id="map-shop">Shop</button>
       <button class="iconbtn" id="map-stats">Stats</button>
     </div>
@@ -1116,6 +1149,7 @@ const COIN_TIDY   = 0;     // tidy placement pays nothing (kept as a knob)
 const COIN_LINE   = 6;     // per cleared line        (multiplied by streak)
 const COIN_COMBO  = 10;    // bonus per extra line in one placement (multiplied)
 const COIN_OBJ    = 40;    // bonus for completing an objective (multiplied)
+const COIN_ALLCLEAR = 120; // emptying the ENTIRE board (multiplied) — rare, loud
 
 /* MODE_MULT — flat multiplier on ALL coin income, set per mode.
    Relax = 1. When Challenge mode is built, its per-clear rate stays at
@@ -1291,9 +1325,12 @@ function defaultSave() {
     levelResults: {},                // "12": { stars: 3, highScore: 4200 }
     owned: ["blocks_default", "bg_default"],
     equipped: { blocks: "blocks_default", bg: "bg_default" },
-    daily: { lastClaim: null },
-    items: { hammer: 0, bomb: 0, shuffle: 0 },      // consumable inventory
+    daily: { lastClaim: null, streak: 0 },
+    items: { hammer: 0, bomb: 0, shuffle: 0, rotate: 0 },  // consumable inventory
     totals: { linesCleared: 0, levelsWon: 0, coinsEarned: 0 },
+    chests: {},                          // zone index -> chest claimed
+    gauntletBest: 0,                     // best endless-run score
+    dailyRun: { lastWin: null, bestScore: 0 },
   };
 }
 function migrateSave(s) {
@@ -1313,6 +1350,7 @@ function loadSave() {
       daily:    { ...d.daily,    ...s.daily },
       items:    { ...d.items,    ...s.items },
       totals:   { ...d.totals,   ...s.totals },
+      dailyRun: { ...d.dailyRun, ...(s.dailyRun || {}) },
     };
   } catch (e) {
     return defaultSave();            // corrupt save -> fresh start, never crash
@@ -1356,6 +1394,8 @@ const POWERUPS = [
     desc: "Blast every block in a 3\u00d73 area." },
   { id: "shuffle", name: "Shuffle", icon: "\u{1F504}", price: 100,
     desc: "Redeal the tray for three fresh pieces." },
+  { id: "rotate",  name: "Rotate",  icon: "\u21bb", price: 120,
+    desc: "Tap a tray piece to rotate it 90\u00b0." },
 ];
 const RESCUE_COST = 60;    // near-miss continue: +5 moves
 const RESCUE_MOVES = 5;
@@ -1398,6 +1438,7 @@ const LevelManager = {
     // a mechanic-INTRO level spotlights its new mechanic: the other
     // optional objectives sit out so the lesson is legible
     const introLevel = n > 1 && Object.values(this.INTRO).includes(n);
+    const zi = Math.floor((n - 1) / 10) % 6;   // zone index — themes the obstacle mix (see ZONES)
     const objectives = [];
 
     /* primary objective: glowing target tiles — always present, 3 -> 10 */
@@ -1410,6 +1451,7 @@ const LevelManager = {
     if (n >= this.INTRO.gems && (n === this.INTRO.gems || (!introLevel && (type === "boss" || rng() < 0.5)))) {
       gemCount = Math.min(10, 4 + Math.floor((n - this.INTRO.gems) / 6)
         + (type === "boss" ? 3 : type === "hard" ? 1 : 0));
+      if (zi === 4) gemCount = Math.min(12, gemCount + 2);      // Golden Dunes: gem country
       patternCells = Math.min(26, gemCount * 2 + 2 + Math.floor(n / 6));
       objectives.push({ kind: "gems", target: gemCount, progress: 0 });
     }
@@ -1419,6 +1461,7 @@ const LevelManager = {
     if (n >= this.INTRO.ice && (n === this.INTRO.ice || (!introLevel && (type !== "standard" || rng() < 0.66)))) {
       iceCount = Math.min(12, 2 + Math.floor((n - this.INTRO.ice) / 6)
         + (type === "boss" ? 3 : type === "hard" ? 1 : 0));
+      if (zi === 1) iceCount = Math.min(14, iceCount + 2);      // Frost Fields: icy
       objectives.push({ kind: "ice", target: iceCount, progress: 0 });
     }
 
@@ -1429,6 +1472,7 @@ const LevelManager = {
     if (n >= this.INTRO.crates && (n === this.INTRO.crates || (!introLevel && (type === "boss" || rng() < 0.5)))) {
       crateCount = Math.min(10, 3 + Math.floor((n - this.INTRO.crates) / 5)
         + (type === "boss" ? 3 : type === "hard" ? 1 : 0));
+      if (zi === 2) crateCount = Math.min(12, crateCount + 2);  // Verdant Woods: crated
       objectives.push({ kind: "crates", target: crateCount, progress: 0 });
     }
 
@@ -1436,7 +1480,7 @@ const LevelManager = {
     if (n >= this.INTRO.lines && (n === this.INTRO.lines || (!introLevel && (type !== "standard" || rng() < 0.5)))) {
       const lineTarget = Math.min(14, 3 + Math.floor(n / 10)
         + (type === "boss" ? 3 : type === "hard" ? 1 : 0));
-      objectives.push({ kind: "lines", target: lineTarget, progress: 0 });
+      objectives.push({ kind: "lines", target: Math.min(16, lineTarget + (zi === 5 ? 2 : 0)), progress: 0 }); // Midnight Tides: line grind
     }
 
     /* stone scatter — from its intro, but NOT on gem levels (the gem
@@ -1445,6 +1489,7 @@ const LevelManager = {
     if (n >= this.INTRO.stone && gemCount === 0) {
       stoneCount = Math.min(14, 3 + Math.floor((n - this.INTRO.stone) / 4)
         + (type === "boss" ? 4 : 0));
+      if (zi === 3) stoneCount = Math.min(16, stoneCount + 3);  // Twilight Peaks: stony
     }
 
     /* move limit — estimate the work, then multiply by a shrinking slack */
@@ -1468,7 +1513,8 @@ const LevelManager = {
       id: n, type, seed: n,
       objectives, stoneCount, iceCount, gemCount, crateCount, patternCells, moveLimit,
       rewards: { coins: coinsReward },
-      tip: this.tipFor(n),
+      tip: this.tipFor(n) ||
+        (type === "boss" ? "Boss level: a stone block lands every 3 moves \u2014 keep the board lean!" : null),
     };
   },
 };
@@ -1651,6 +1697,8 @@ function bindUI() {
   // --- progression UI --------------------------------------------------
   document.getElementById("open-map").addEventListener("click", openMap);
   document.getElementById("map-relax").addEventListener("click", startRelax);
+  document.getElementById("map-daily").addEventListener("click", startDailyChallenge);
+  document.getElementById("map-gauntlet").addEventListener("click", startGauntlet);
   document.getElementById("map-shop").addEventListener("click", () => {
     renderShop();
     document.getElementById("shop-scrim").classList.add("open");
@@ -1708,12 +1756,28 @@ function newObjective() {
    ===================================================================== */
 function dealTray() {
   tray = [dealPiece(), dealPiece(), dealPiece()];
-  // relax mode: if not one of the three can be placed anywhere, quietly
-  // redeal instead of ending the game.
+  // If none of the three can be placed anywhere, quietly redeal instead
+  // of ending the game. (Gauntlet skips this — a dead deal IS the loss.)
   let safety = 0;
-  while (!trayHasMove() && safety++ < 20) {
+  while (mode !== "gauntlet" && !trayHasMove() && safety++ < 20) {
     tray = [dealPiece(), dealPiece(), dealPiece()];
   }
+  // PITY RULE: on a crowded board, never serve three big awkward pieces
+  // at once — swap one for a small shape so there is always a fighting
+  // chance. Fires rarely; kills the worst "nothing fits" frustration.
+  const fill = grid ? grid.flat().filter(Boolean).length / (GRID_SIZE * GRID_SIZE) : 0;
+  if (fill >= 0.45 && !tray.some(p => p && p.shape.w >= ONBOARDING_MIN_WEIGHT)) {
+    const small = PIECES.filter(p => p.w >= ONBOARDING_MIN_WEIGHT);
+    const shape = small[(Math.random() * small.length) | 0];
+    tray[(Math.random() * 3) | 0] =
+      { id: ++pieceId, shape, color: COLORS[(Math.random() * COLORS.length) | 0] };
+  }
+}
+
+/* rotate a shape 90\u00b0 clockwise (fresh object — PIECES stay pristine) */
+function rotateShape(shape) {
+  const maxR = Math.max(...shape.cells.map(c => c[0]));
+  return { ...shape, cells: shape.cells.map(([r, c]) => [c, maxR - r]) };
 }
 
 function dealPiece() {
@@ -1826,6 +1890,11 @@ function placePiece(piece, originR, originC) {
   if (mode === "journey") {
     if (movesLeft !== null) movesLeft--;      // each placement = one move
     levelScore += 5;
+    if (level && level.type === "boss" && !levelDone) bossTickFn();
+    updateHUD();
+  } else if (mode === "gauntlet") {
+    levelScore += 5;
+    gPlacements++;
     updateHUD();
   } else if (onboardingLeft > 0) {
     onboardingLeft--;   // tick down onboarding window (relax only)
@@ -1936,10 +2005,11 @@ function clearLines(rows, cols, originCells) {
     } else {
       el.classList.add("clearing");
       const shardColor = gemCells[key] || grid[r][c] || "#fff";
-      const n = gemCells[key] ? 8 : 5;                              // gems burst bigger
+      const n = (gemCells[key] ? 8 : 5) + (rows.length + cols.length >= 3 ? 3 : 0); // bigger clears, bigger bursts
       setTimeout(() => spawnShards(el, shardColor, n), delay);
     }
   });
+  if (rows.length + cols.length >= 3) screenFlash();   // 3+ lines: screen pop
   if (rows.length + cols.length >= 2) {
     const wrap = boardEl.parentElement;
     if (wrap && wrap.classList) {
@@ -1958,14 +2028,16 @@ function clearLines(rows, cols, originCells) {
   const mult = streakMult();
   const base = lines * COIN_LINE + Math.max(0, lines - 1) * COIN_COMBO;
   awardCoins(Math.round(base * mult));
-  if (mode === "journey") {
+  if (mode === "journey" || mode === "gauntlet") {
     levelScore += Math.round((lines * 100 + Math.max(0, lines - 1) * 60) * mult);
   }
 
   updateStreakBadge();
 
   // feedback: show combo and/or the active multiplier
-  if (lines >= 2 && streak > 1) {
+  if (lines >= 4) {
+    toast("\u{1F4A5} MONSTER CLEAR \u2014 " + lines + " lines!");
+  } else if (lines >= 2 && streak > 1) {
     toast(lines + " lines · x" + (mult % 1 === 0 ? mult : mult.toFixed(1)) + " streak!");
   } else if (lines >= 2) {
     toast(lines + " lines! +" + (lines - 1) + " combo");
@@ -2003,6 +2075,21 @@ function clearLines(rows, cols, originCells) {
       grid[r][c] = null;
       el.classList.remove("clearing");
     });
+
+    /* ALL CLEAR — the whole board is empty. Rare, loud, well paid. */
+    if (grid.every(row => row.every(cell => !cell))) {
+      const bonus = Math.round(COIN_ALLCLEAR * mult);
+      awardCoins(bonus);
+      if (mode !== "relax") levelScore += 500;
+      toast("\u2728 ALL CLEAR! +" + bonus);
+      const wrap = boardEl.parentElement;
+      if (wrap) {
+        wrap.classList.remove("allclear"); void wrap.offsetWidth;
+        wrap.classList.add("allclear");
+        setTimeout(() => wrap.classList.remove("allclear"), 900);
+      }
+      screenFlash();
+    }
 
     if (mode === "journey") {
       /* ---- journey objective bookkeeping ---------------------------- */
@@ -2078,6 +2165,19 @@ function afterTurn() {
         levelFail("No room left on the board");
         return;
       }
+    }
+  } else if (mode === "gauntlet") {
+    // rising pressure: stones owed by recent placements land AFTER the
+    // turn resolves, so they can never steal an earned line clear
+    while (gPlacements >= gNextStoneAt) {
+      gNextStoneAt += 4;
+      spawnPressureStone();
+    }
+    updateHUD();
+    if (!busy && !trayHasMove()) {
+      render();
+      gauntletOver();
+      return;
     }
   } else if (!allPlaced && !trayHasMove()) {
     // relax mode: gentle redeal, no punishment, no game over
@@ -2246,6 +2346,17 @@ let drag = null;  // { piece, grabDR, grabDC, floatEl, liftPx }
 function startDrag(e, piece, pieceEl) {
   if (busy) return;
   e.preventDefault();
+
+  // ROTATE power-up armed: this tap rotates the piece instead of dragging
+  if (armedPowerup === "rotate") {
+    P.items.rotate--;
+    persist();
+    disarmPowerup();
+    piece.shape = rotateShape(piece.shape);
+    render();
+    toast("Rotated");
+    return;
+  }
 
   // Grab anchor = the piece's CENTER OF MASS (rounded to a filled sub-cell).
   // Old behavior anchored to whichever sub-cell was clicked, which only
@@ -2829,6 +2940,36 @@ function renderSummary() {
     note.textContent = "First skin takes a while — might feel grindy. Consider lowering its price or raising clear rewards.";
   }
   summaryBody.appendChild(note);
+
+  // SAVE TRANSFER — copy/paste codes so testers keep progress across builds
+  const ioRow = document.createElement("div");
+  ioRow.className = "modal-btn-row";
+  ioRow.style.marginTop = "14px";
+  const exp = document.createElement("button");
+  exp.className = "modal-btn secondary";
+  exp.textContent = "Copy save code";
+  exp.onclick = () => {
+    const code = btoa(unescape(encodeURIComponent(JSON.stringify(P))));
+    const fallback = () => window.prompt("Copy your save code:", code);
+    if (navigator.clipboard && navigator.clipboard.writeText)
+      navigator.clipboard.writeText(code).then(() => toast("Save code copied"), fallback);
+    else fallback();
+  };
+  const imp = document.createElement("button");
+  imp.className = "modal-btn secondary";
+  imp.textContent = "Load save code";
+  imp.onclick = () => {
+    const code = window.prompt("Paste a save code:");
+    if (!code) return;
+    try {
+      const obj = JSON.parse(decodeURIComponent(escape(atob(code.trim()))));
+      if (!obj || typeof obj !== "object" || !("coins" in obj)) throw 0;
+      localStorage.setItem(SAVE_KEY, JSON.stringify(obj));
+      location.reload();
+    } catch (_) { toast("That code didn't parse \u2014 double-check it"); }
+  };
+  ioRow.append(exp, imp);
+  summaryBody.appendChild(ioRow);
 }
 
 /* =====================================================================
@@ -2844,7 +2985,9 @@ const OBJ_META = {
 
 function updateHUD() {
   modeTitle.textContent = mode === "journey"
-    ? "Level " + level.id
+    ? (level && level.isDaily ? "Daily Challenge" : "Level " + level.id)
+    : mode === "gauntlet"
+    ? "Gauntlet \u00b7 " + levelScore
     : "Block Puzzle · Relax";
   if (mode === "journey" && movesLeft !== null) {
     movesPill.classList.add("show");
@@ -2971,8 +3114,13 @@ function spawnTargets() {
 }
 
 function startLevel(n) {
-  const spec = LevelManager.getLevel(n);
+  startLevelSpec(LevelManager.getLevel(n));
+}
+
+/* start ANY spec — used by the journey map AND the daily challenge */
+function startLevelSpec(spec) {
   mode = "journey";
+  bossTick = 0;
   level = spec;
   levelDone = false;
   busy = false;
@@ -3006,6 +3154,95 @@ function startLevel(n) {
   updateHUD();
   render();
   document.getElementById("map-screen").classList.remove("open");
+}
+
+/* =====================================================================
+   PRESSURE STONES — shared by boss levels and gauntlet mode
+   ===================================================================== */
+let bossTick = 0;
+
+function spawnPressureStone() {
+  const empties = [];
+  for (let r = 0; r < GRID_SIZE; r++)
+    for (let c = 0; c < GRID_SIZE; c++)
+      if (!grid[r][c] && !targets.includes(r + "," + c)) empties.push([r, c]);
+  if (empties.length < 9) return false;      // mercy: never chokes the board
+  const [r, c] = empties[(Math.random() * empties.length) | 0];
+  grid[r][c] = STONE_COLOR;
+  render();
+  cellAt(r, c).classList.add("settle");
+  return true;
+}
+
+function bossTickFn() {
+  if (++bossTick % 3 !== 0) return;
+  if (spawnPressureStone()) toast("The boss drops a stone!");
+}
+
+/* =====================================================================
+   DAILY CHALLENGE — one seeded board for everyone, new every day
+   ===================================================================== */
+function startDailyChallenge() {
+  const now = new Date();
+  const seed = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
+  const rng = mulberry32(seed >>> 0);
+  const spec = LevelManager.getLevel(15 + Math.floor(rng() * 30));  // mid-band difficulty
+  spec.seed = seed;      // date-seeded board: identical for every player today
+  spec.isDaily = true;
+  spec.tip = "Daily challenge \u2014 the same board for every player, fresh every day.";
+  startLevelSpec(spec);
+}
+
+/* =====================================================================
+   GAUNTLET — endless survival. Stones rain in as you place; no mercy
+   redeals; score until nothing fits. Best run persists.
+   ===================================================================== */
+let gPlacements = 0, gNextStoneAt = 4;
+
+function startGauntlet() {
+  mode = "gauntlet";
+  level = null;
+  movesLeft = null;
+  levelDone = false;
+  busy = false;
+  disarmPowerup();
+  iceHP = {}; gemCells = {}; crateCells = {};
+  streak = 0; held = null;
+  levelScore = 0;
+  gPlacements = 0; gNextStoneAt = 4;
+  onboardingLeft = 0;
+  grid = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(null));
+  newObjective();
+  dealTray();
+  updateStreakBadge();
+  updateHUD();
+  render();
+  document.getElementById("map-screen").classList.remove("open");
+  toast("Gauntlet: stones fall as you play \u2014 survive!");
+}
+
+function gauntletOver() {
+  busy = true;
+  const prevBest = P.gauntletBest || 0;
+  P.gauntletBest = Math.max(prevBest, levelScore);
+  persist();
+  const scrim = document.getElementById("end-scrim");
+  document.getElementById("end-title").textContent = "Gauntlet over";
+  document.getElementById("end-body").innerHTML =
+    '<p class="end-sub" style="font-size:15px;">Score <b>' + levelScore + "</b>" +
+    (levelScore > prevBest ? " \u2014 \u{1F3C6} new best!" : " \u00b7 best " + P.gauntletBest) + "</p>";
+  const btns = document.getElementById("end-buttons");
+  btns.innerHTML = "";
+  const mapBtn = document.createElement("button");
+  mapBtn.className = "modal-btn secondary";
+  mapBtn.textContent = "Map";
+  mapBtn.onclick = () => { scrim.classList.remove("open"); openMap(); };
+  const again = document.createElement("button");
+  again.className = "modal-btn primary";
+  again.textContent = "Run it back";
+  again.onclick = () => { scrim.classList.remove("open"); startGauntlet(); };
+  btns.append(mapBtn, again);
+  scrim.classList.add("open");
 }
 
 function startRelax() {
@@ -3092,6 +3329,18 @@ function levelWin() {
     stars = ratio >= 0.3 ? 3 : ratio >= 0.12 ? 2 : 1;
   }
 
+  /* DAILY CHALLENGE: no map progression — pays once per day, tracks best */
+  if (level.isDaily) {
+    const today = new Date().toDateString();
+    const firstToday = P.dailyRun.lastWin !== today;
+    P.dailyRun.lastWin = today;
+    P.dailyRun.bestScore = Math.max(P.dailyRun.bestScore || 0, levelScore);
+    const reward = firstToday ? 150 : 25;
+    awardCoins(reward);
+    showLevelEnd(true, { stars, reward, firstClear: firstToday, best: P.dailyRun.bestScore });
+    return;
+  }
+
   const prev = P.levelResults[level.id] || { stars: 0, highScore: 0 };
   const firstClear = prev.stars === 0;
   const reward = firstClear
@@ -3137,8 +3386,8 @@ function showLevelEnd(won, info) {
   mapBtn.onclick = () => { scrim.classList.remove("open"); openMap(); };
 
   if (won) {
-    title.textContent = level.type === "boss"
-      ? "Boss defeated!"
+    title.textContent = level.isDaily ? "Daily challenge complete!"
+      : level.type === "boss" ? "Boss defeated!"
       : "Level " + level.id + " complete!";
     body.innerHTML =
       '<div class="end-stars">' +
@@ -3156,11 +3405,16 @@ function showLevelEnd(won, info) {
       const modalEl = scrim.querySelector ? scrim.querySelector(".modal") : null;
       if (modalEl) confettiBurst(modalEl);
     }
-    const next = document.createElement("button");
-    next.className = "modal-btn primary";
-    next.textContent = "Next level";
-    next.onclick = () => { scrim.classList.remove("open"); showLevelIntro(level.id + 1); };
-    btns.append(mapBtn, next);
+    if (level.isDaily) {
+      mapBtn.className = "modal-btn primary";   // daily has no "next level"
+      btns.append(mapBtn);
+    } else {
+      const next = document.createElement("button");
+      next.className = "modal-btn primary";
+      next.textContent = "Next level";
+      next.onclick = () => { scrim.classList.remove("open"); showLevelIntro(level.id + 1); };
+      btns.append(mapBtn, next);
+    }
   } else {
     title.textContent = "Level failed";
     body.innerHTML = '<p class="end-sub" style="font-size:14px;">' + info.reason +
@@ -3185,7 +3439,10 @@ function openMap() {
   renderMap();
   document.getElementById("map-coin-count").textContent = coins;
   document.getElementById("map-sub").textContent =
-    "Level " + P.currentLevel + " · " + zoneFor(P.currentLevel).name;
+    "Level " + P.currentLevel + " · " + zoneFor(P.currentLevel).name +
+    (P.gauntletBest ? " · best run " + P.gauntletBest : "");
+  document.getElementById("map-daily").textContent =
+    P.dailyRun.lastWin === new Date().toDateString() ? "Daily \u2713" : "Daily";
   document.getElementById("map-screen").classList.add("open");
   const cur = document.querySelector(".map-node.current");
   if (cur) cur.scrollIntoView({ block: "center" });
@@ -3204,6 +3461,7 @@ const ZONES = [
   { name: "Midnight Tides", sky: "#0f1c28", glow: "#5db8ff" },
 ];
 const zoneFor = n => ZONES[Math.floor((n - 1) / ZONE_SIZE) % ZONES.length];
+const CHEST_STARS = 15;   // stars needed inside a zone to open its chest
 
 function renderMap() {
   const path = document.getElementById("map-path");
@@ -3280,6 +3538,34 @@ function renderMap() {
     banner.style.borderColor = zone.glow + "55";
     banner.textContent = zone.name + " · " + firstL + "–" + (firstL + ZONE_SIZE - 1);
     path.appendChild(banner);
+
+    // STAR-GATED CHEST at the zone's exit — the meta reward that gives
+    // replaying for 3 stars a purpose. Pays coins + a random power-up.
+    let zStars = 0;
+    for (let l = firstL; l < firstL + ZONE_SIZE; l++)
+      zStars += P.levelResults[l] ? P.levelResults[l].stars : 0;
+    const claimed = !!P.chests[z];
+    const ready = !claimed && zStars >= CHEST_STARS;
+    const lastL = Math.min(maxNode, (z + 1) * ZONE_SIZE);
+    const chest = document.createElement("div");
+    chest.className = "map-chest" + (claimed ? " claimed" : ready ? " ready" : "");
+    chest.style.left = ((xFor(lastL) + xFor(lastL + 1)) / 2 >= 50 ? 25 : 75) + "%";
+    chest.style.top = (top + 14) + "px";
+    chest.innerHTML = '<span class="box">\u{1F381}</span><span class="lbl">' +
+      (claimed ? "claimed" : zStars + "/" + CHEST_STARS + " \u2605") + "</span>";
+    chest.addEventListener("click", () => {
+      if (claimed) return;
+      if (!ready) { toast("Earn " + CHEST_STARS + "\u2605 in " + zone.name + " to open the chest"); return; }
+      P.chests[z] = true;
+      const gift = 150 + z * 50;
+      const pu = POWERUPS[(Math.random() * POWERUPS.length) | 0];
+      P.items[pu.id] = (P.items[pu.id] || 0) + 1;
+      awardCoins(gift);
+      toast("\u{1F381} +" + gift + " coins & a " + pu.name + "!");
+      document.getElementById("map-coin-count").textContent = coins;
+      renderMap();
+    });
+    path.appendChild(chest);
   }
 
   for (let n = 1; n <= maxNode; n++) {
@@ -3376,7 +3662,9 @@ function armPowerup(id) {
   armedPowerup = id;
   document.documentElement.classList.add("targeting");
   renderPowerupBar();
-  toast(id === "hammer" ? "Tap a block to smash it" : "Tap a spot to bomb 3\u00d73");
+  toast(id === "hammer" ? "Tap a block to smash it"
+      : id === "rotate" ? "Tap a tray piece to rotate it"
+      : "Tap a spot to bomb 3\u00d73");
 }
 
 function applyHammer(r, c) {
@@ -3499,6 +3787,13 @@ function acceptRescue() {
 /* =====================================================================
    CLEAR EXPLOSION — shard particles from a cleared cell
    ===================================================================== */
+function screenFlash() {
+  const f = document.createElement("div");
+  f.className = "screen-flash";
+  document.body.appendChild(f);
+  setTimeout(() => f.remove(), 320);
+}
+
 function spawnShards(cellEl, color, count) {
   const fx = document.getElementById("fx-layer");
   if (!fx || !cellEl || !cellEl.getBoundingClientRect) return;
@@ -3564,9 +3859,13 @@ function confettiBurst(container) {
 function claimDailyBonus() {
   const today = new Date().toDateString();
   if (P.daily.lastClaim === today) return;
+  // consecutive days build a streak: 50, 75, 100 ... capped at 200
+  const yesterday = new Date(Date.now() - 864e5).toDateString();
+  P.daily.streak = P.daily.lastClaim === yesterday ? (P.daily.streak || 0) + 1 : 1;
   P.daily.lastClaim = today;
-  awardCoins(DAILY_BONUS);
-  toast("Daily bonus +" + DAILY_BONUS);
+  const bonus = Math.min(200, DAILY_BONUS + (P.daily.streak - 1) * 25);
+  awardCoins(bonus);
+  toast("Daily bonus +" + bonus + (P.daily.streak > 1 ? " \u00b7 day " + P.daily.streak : ""));
 }
 
 /* =====================================================================
