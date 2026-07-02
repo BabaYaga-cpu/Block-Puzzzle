@@ -638,6 +638,21 @@
     pointer-events: none;
     animation: gemtwinkle 2.8s ease-in-out infinite;
   }
+  /* wooden crate: plank stripes + an X brace, smashed by one line clear */
+  .cell.crate {
+    background-image:
+      repeating-linear-gradient(0deg, transparent 0 9px, rgba(0,0,0,.16) 9px 11px),
+      radial-gradient(circle at 30% 25%, rgba(255,255,255,.10), transparent 55%);
+  }
+  .cell.crate::after {
+    content: ""; position: absolute; inset: 10%;
+    border: 2px solid rgba(58,34,14,.6);
+    border-radius: 4px;
+    background:
+      linear-gradient(45deg,  transparent 45%, rgba(58,34,14,.6) 45% 55%, transparent 55%),
+      linear-gradient(-45deg, transparent 45%, rgba(58,34,14,.6) 45% 55%, transparent 55%);
+    pointer-events: none;
+  }
   @keyframes gemtwinkle {
     0%,100% { filter: brightness(1); }
     50%     { filter: brightness(1.35); }
@@ -728,6 +743,37 @@
     background: var(--line);
     z-index: 1;
   }
+  /* ---- zone backdrop layers (behind dots + nodes) ---- */
+  .map-zone {
+    position: absolute; left: 0; right: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .zone-deco {
+    position: absolute;
+    border-radius: 50%;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .zone-glow {
+    position: absolute;
+    margin-left: -80px;
+    border-radius: 50%;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .zone-banner {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    z-index: 1;
+    font-size: 10px; font-weight: 700;
+    letter-spacing: .18em; text-transform: uppercase;
+    padding: 4px 14px; border-radius: 999px;
+    border: 1px solid;
+    background: rgba(0,0,0,.32);
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .map-sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
   .map-bottom {
     display: flex; gap: 8px;
     padding: 12px 20px max(20px, env(safe-area-inset-bottom));
@@ -946,9 +992,8 @@
   <div class="pu-bar" id="pu-bar"></div>
 
   <div class="hint">
-    Drag a piece onto the board. Drag one into the <b>Hold</b> slot to set it aside — hold isn't swappable,
-    so once full it stays full until you place the held piece. Sealing a single empty cell flashes red.
-    Clear lines back-to-back to build a streak multiplier.
+    Drag pieces onto the board — fill a row or column to clear it.
+    Drop a piece on <b>Hold</b> to save it for later.
   </div>
 
   <!-- Debug slider: only shown after the first touch event in this session.
@@ -983,7 +1028,10 @@
   <!-- ===== SAGA MAP (home screen) ===== -->
   <div class="map-screen" id="map-screen">
     <div class="map-top">
-      <div class="title">Journey</div>
+      <div>
+        <div class="title">Journey</div>
+        <div class="map-sub" id="map-sub"></div>
+      </div>
       <div class="coins"><span class="dot"></span><span id="map-coin-count">0</span></div>
     </div>
     <div class="map-scroll" id="map-scroll"><div class="map-path" id="map-path"></div></div>
@@ -1293,6 +1341,7 @@ function persist() {
 const STONE_COLOR = "#6e655c";       // prefilled stone blocks (clear normally)
 const ICE_COLOR   = "#7fb2d9";       // ice blocks (need TWO clears to break)
 const GEM_BLOCK_COLOR = "#b39a6d";   // pre-placed block that holds a gem
+const CRATE_COLOR = "#9c6b3f";       // wooden crates (one clear breaks them)
 const GEM_COLORS = ["#5db8ff", "#ff5d6d", "#6de08a", "#c98bff", "#ffc45d"];
 
 /* POWER-UPS — consumables. Coins buy them, P.items holds the inventory.
@@ -1320,7 +1369,7 @@ function mulberry32(a) {
 }
 
 const LevelManager = {
-  INTRO: { moveLimit: 3, gems: 4, stone: 6, ice: 8, lines: 12 },
+  INTRO: { moveLimit: 3, gems: 4, stone: 6, ice: 8, lines: 12, crates: 16 },
 
   levelType(n) {
     if (n % 20 === 0) return "boss";
@@ -1336,6 +1385,7 @@ const LevelManager = {
     if (n === this.INTRO.stone) return "New: stone blocks start on the board. They fill cells like normal pieces — clear a line through them to remove them.";
     if (n === this.INTRO.ice) return "New: ice! Ice needs TWO line clears — the first clear cracks it, the second breaks it. Break all the ice to win.";
     if (n === this.INTRO.lines) return "New objective type: clear a total number of lines. Multi-line combos count each line.";
+    if (n === this.INTRO.crates) return "New: wooden crates! One line clear through a crate smashes it. Break every crate to win.";
     return null;
   },
 
@@ -1343,6 +1393,9 @@ const LevelManager = {
     const rng = mulberry32((n * 2654435761) >>> 0);
     const type = this.levelType(n);
     const d = Math.min(1, n / 120);              // 0 -> 1 over the first 120 levels
+    // a mechanic-INTRO level spotlights its new mechanic: the other
+    // optional objectives sit out so the lesson is legible
+    const introLevel = n > 1 && Object.values(this.INTRO).includes(n);
     const objectives = [];
 
     /* primary objective: glowing target tiles — always present, 3 -> 10 */
@@ -1352,7 +1405,7 @@ const LevelManager = {
     /* gems — from L4: a mirrored pre-placed pattern with gems locked
        inside. Always on the intro level and bosses, ~half of the rest. */
     let gemCount = 0, patternCells = 0;
-    if (n >= this.INTRO.gems && (n === this.INTRO.gems || type === "boss" || rng() < 0.5)) {
+    if (n >= this.INTRO.gems && (n === this.INTRO.gems || (!introLevel && (type === "boss" || rng() < 0.5)))) {
       gemCount = Math.min(10, 4 + Math.floor((n - this.INTRO.gems) / 6)
         + (type === "boss" ? 3 : type === "hard" ? 1 : 0));
       patternCells = Math.min(26, gemCount * 2 + 2 + Math.floor(n / 6));
@@ -1361,14 +1414,24 @@ const LevelManager = {
 
     /* ice — from its intro onward; always on hard/boss, ~2/3 of standards */
     let iceCount = 0;
-    if (n >= this.INTRO.ice && (n === this.INTRO.ice || type !== "standard" || rng() < 0.66)) {
+    if (n >= this.INTRO.ice && (n === this.INTRO.ice || (!introLevel && (type !== "standard" || rng() < 0.66)))) {
       iceCount = Math.min(12, 2 + Math.floor((n - this.INTRO.ice) / 6)
         + (type === "boss" ? 3 : type === "hard" ? 1 : 0));
       objectives.push({ kind: "ice", target: iceCount, progress: 0 });
     }
 
+    /* crates — from their intro; always on bosses, ~1/2 of the rest.
+       One-hit breakables: lighter pressure than ice, so they stack fine
+       with other objectives without choking the board. */
+    let crateCount = 0;
+    if (n >= this.INTRO.crates && (n === this.INTRO.crates || (!introLevel && (type === "boss" || rng() < 0.5)))) {
+      crateCount = Math.min(10, 3 + Math.floor((n - this.INTRO.crates) / 5)
+        + (type === "boss" ? 3 : type === "hard" ? 1 : 0));
+      objectives.push({ kind: "crates", target: crateCount, progress: 0 });
+    }
+
     /* total-lines objective — from L12; always on hard/boss, ~1/2 of standards */
-    if (n >= this.INTRO.lines && (n === this.INTRO.lines || type !== "standard" || rng() < 0.5)) {
+    if (n >= this.INTRO.lines && (n === this.INTRO.lines || (!introLevel && (type !== "standard" || rng() < 0.5)))) {
       const lineTarget = Math.min(14, 3 + Math.floor(n / 10)
         + (type === "boss" ? 3 : type === "hard" ? 1 : 0));
       objectives.push({ kind: "lines", target: lineTarget, progress: 0 });
@@ -1386,7 +1449,7 @@ const LevelManager = {
     let moveLimit = null;
     if (n >= this.INTRO.moveLimit) {
       const linesObj = objectives.find(o => o.kind === "lines");
-      const est = 8 + targetCount * 2.0 + iceCount * 1.6 + gemCount * 1.8 + (linesObj ? linesObj.target * 1.4 : 0);
+      const est = 8 + targetCount * 2.0 + iceCount * 1.6 + gemCount * 1.8 + crateCount * 1.2 + (linesObj ? linesObj.target * 1.4 : 0);
       let slack = 1.7 - 0.55 * d;
       if (type === "hard") slack *= 0.9;
       if (type === "boss") slack *= 0.85;
@@ -1401,7 +1464,7 @@ const LevelManager = {
 
     return {
       id: n, type, seed: n,
-      objectives, stoneCount, iceCount, gemCount, patternCells, moveLimit,
+      objectives, stoneCount, iceCount, gemCount, crateCount, patternCells, moveLimit,
       rewards: { coins: coinsReward },
       tip: this.tipFor(n),
     };
@@ -1432,6 +1495,7 @@ let movesLeft = null;   // null = no move limit
 let levelScore = 0;
 let levelDone = false;  // guards double win/fail
 let iceHP = {};         // "r,c" -> clears remaining (2 = intact, 1 = cracked)
+let crateCells = {};    // "r,c" -> true for wooden crates (1-hit objective blocks)
 let gemCells = {};      // "r,c" -> gem color, for pre-placed gem blocks
 let armedPowerup = null;   // "hammer" | "bomb" while waiting for a board tap
 let rescueOffered = false; // near-miss continue: once per level attempt
@@ -1911,7 +1975,7 @@ function clearLines(rows, cols, originCells) {
     // Wipe cleared cells from the model AND strip transient classes.
     // ICE: each clear "hits" ice once — the first hit cracks it (the
     // cell SURVIVES, still filled), the second breaks it and frees it.
-    let iceBroken = 0, gemsCollected = 0;
+    let iceBroken = 0, gemsCollected = 0, cratesBroken = 0;
     toClear.forEach(key => {
       const [r, c] = key.split(",").map(Number);
       const el = cellAt(r, c);
@@ -1929,6 +1993,10 @@ function clearLines(rows, cols, originCells) {
       if (gemCells[key]) {            // gem block cleared -> gem collected
         delete gemCells[key];
         gemsCollected++;
+      }
+      if (crateCells[key]) {          // crate cleared -> smashed (one hit)
+        delete crateCells[key];
+        cratesBroken++;
       }
       grid[r][c] = null;
       el.classList.remove("clearing");
@@ -1948,6 +2016,10 @@ function clearLines(rows, cols, originCells) {
       const gObj = objectives.find(o => o.kind === "gems");
       if (gObj && gemsCollected > 0) {
         gObj.progress = Math.min(gObj.target, gObj.progress + gemsCollected);
+      }
+      const crObj = objectives.find(o => o.kind === "crates");
+      if (crObj && cratesBroken > 0) {
+        crObj.progress = Math.min(crObj.target, crObj.progress + cratesBroken);
       }
       const lObj = objectives.find(o => o.kind === "lines");
       if (lObj) lObj.progress = Math.min(lObj.target, lObj.progress + lines);
@@ -2072,6 +2144,8 @@ function render() {
         } else if (gem) {
           el.classList.add("gemblock");
           el.style.setProperty("--gem-color", gem);
+        } else if (crateCells[r + "," + c]) {
+          el.classList.add("crate");
         } else if (color === STONE_COLOR) {
           el.classList.add("stone");
         }
@@ -2762,6 +2836,7 @@ const OBJ_META = {
   targets: { label: "Clear glowing tiles", color: "var(--mint)" },
   gems:    { label: "Collect gems",        color: "#5db8ff" },
   ice:     { label: "Break the ice",       color: "#9fd0f0" },
+  crates:  { label: "Break the crates",    color: "#c98e55" },
   lines:   { label: "Clear lines",         color: "var(--gold)" },
 };
 
@@ -2816,9 +2891,10 @@ function buildLevelBoard(spec) {
   grid = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(null));
   iceHP = {};
   gemCells = {};
+  crateCells = {};
   const rng = mulberry32(((spec.seed * 913) + 7) >>> 0);
   const rowFill = Array(GRID_SIZE).fill(0), colFill = Array(GRID_SIZE).fill(0);
-  let placedIce = 0, placedGems = 0;
+  let placedIce = 0, placedGems = 0, placedCrates = 0;
 
   /* GEM LEVELS: a left/right-MIRRORED pattern of pre-placed blocks (the
      classic "clear what's already here" opener), with gems locked inside
@@ -2852,23 +2928,25 @@ function buildLevelBoard(spec) {
     }
   }
 
-  /* scatter stone + ice (stone is skipped by the spec on gem levels) */
-  const place = (count, isIce) => {
+  /* scatter stone + ice + crates (stone is skipped on gem levels) */
+  const place = (count, kind) => {
     let tries = 0;
     while (count > 0 && tries++ < 600) {
       const r = 2 + Math.floor(rng() * (GRID_SIZE - 2));
       const c = Math.floor(rng() * GRID_SIZE);
       if (grid[r][c]) continue;
       if (rowFill[r] >= GRID_SIZE - 3 || colFill[c] >= GRID_SIZE - 3) continue;
-      grid[r][c] = isIce ? ICE_COLOR : STONE_COLOR;
-      if (isIce) { iceHP[r + "," + c] = 2; placedIce++; }
+      grid[r][c] = kind === "ice" ? ICE_COLOR : kind === "crate" ? CRATE_COLOR : STONE_COLOR;
+      if (kind === "ice")   { iceHP[r + "," + c] = 2; placedIce++; }
+      if (kind === "crate") { crateCells[r + "," + c] = true; placedCrates++; }
       rowFill[r]++; colFill[c]++;
       count--;
     }
   };
-  place(spec.stoneCount, false);
-  place(spec.iceCount, true);
-  return { placedIce, placedGems };
+  place(spec.stoneCount, "stone");
+  place(spec.iceCount, "ice");
+  place(spec.crateCount || 0, "crate");
+  return { placedIce, placedGems, placedCrates };
 }
 
 /* Keep up to 3 glowing tiles live on the board until the targets
@@ -2914,6 +2992,11 @@ function startLevel(n) {
     if (placed.placedGems === 0) objectives = objectives.filter(o => o.kind !== "gems");
     else gObj.target = placed.placedGems;  // must collect exactly the gems on the board
   }
+  const cObj = objectives.find(o => o.kind === "crates");
+  if (cObj) {
+    if (placed.placedCrates === 0) objectives = objectives.filter(o => o.kind !== "crates");
+    else cObj.target = placed.placedCrates; // must break exactly the crates on the board
+  }
   movesLeft = spec.moveLimit;        // null = no limit (pre-intro levels)
   spawnTargets();
   dealTray();
@@ -2932,6 +3015,7 @@ function startRelax() {
   disarmPowerup();
   iceHP = {};
   gemCells = {};
+  crateCells = {};
   streak = 0;
   held = null;
   onboardingLeft = ONBOARDING_LENGTH;
@@ -3098,10 +3182,26 @@ function openMap() {
   disarmPowerup();
   renderMap();
   document.getElementById("map-coin-count").textContent = coins;
+  document.getElementById("map-sub").textContent =
+    "Level " + P.currentLevel + " · " + zoneFor(P.currentLevel).name;
   document.getElementById("map-screen").classList.add("open");
   const cur = document.querySelector(".map-node.current");
   if (cur) cur.scrollIntoView({ block: "center" });
 }
+
+/* ZONES — every 10 levels the journey enters a new region with its own
+   name, sky and scenery, saga-map style. Cycles forever, so the
+   procedurally infinite levels always have a themed backdrop. */
+const ZONE_SIZE = 10;
+const ZONES = [
+  { name: "Ember Meadow",   sky: "#2a1f15", glow: "#e0a960" },
+  { name: "Frost Fields",   sky: "#152230", glow: "#8fc3e8" },
+  { name: "Verdant Woods",  sky: "#16261a", glow: "#9caf88" },
+  { name: "Twilight Peaks", sky: "#221a30", glow: "#b98ae6" },
+  { name: "Golden Dunes",   sky: "#2b2310", glow: "#ffd97a" },
+  { name: "Midnight Tides", sky: "#0f1c28", glow: "#5db8ff" },
+];
+const zoneFor = n => ZONES[Math.floor((n - 1) / ZONE_SIZE) % ZONES.length];
 
 function renderMap() {
   const path = document.getElementById("map-path");
@@ -3111,6 +3211,66 @@ function renderMap() {
   path.style.height = H + "px";
   const xFor = n => 50 + Math.sin(n * 0.85) * 26;            // % across
   const yFor = n => H - 110 - (n - 1) * NODE_SPACING;        // px from top
+
+  /* ---- zone backdrop: sky bands, glow, scenery dots, name banners ---- */
+  // boundary between zone z and z+1 sits halfway between its last node
+  // and the next zone's first node
+  const boundaryY = z => {
+    const lastL = (z + 1) * ZONE_SIZE;
+    return lastL >= maxNode ? 0 : (yFor(lastL) + yFor(lastL + 1)) / 2 + 28;
+  };
+  const zoneCount = Math.ceil(maxNode / ZONE_SIZE);
+  for (let z = 0; z < zoneCount; z++) {
+    const zone = ZONES[z % ZONES.length];
+    const next = ZONES[(z + 1) % ZONES.length];
+    const bottom = z === 0 ? H : boundaryY(z - 1);
+    const top = boundaryY(z);
+    const band = document.createElement("div");
+    band.className = "map-zone";
+    band.style.top = top + "px";
+    band.style.height = (bottom - top) + "px";
+    // blend into the NEXT zone's sky at the band's top edge so zone
+    // changes read as a horizon, not a hard seam
+    band.style.background =
+      `radial-gradient(120% 55% at 50% 100%, ${zone.glow}22 0%, transparent 60%),` +
+      `linear-gradient(180deg, ${next.sky} 0%, ${zone.sky} 18%, ${zone.sky} 100%)`;
+    path.appendChild(band);
+
+    // scenery: seeded twinkle dots + two soft glow blobs per zone
+    const zrng = mulberry32(((z + 1) * 48271) >>> 0);
+    for (let i = 0; i < 16; i++) {
+      const d = document.createElement("div");
+      d.className = "zone-deco";
+      const sz = 2 + zrng() * 4;
+      d.style.width = d.style.height = sz.toFixed(1) + "px";
+      d.style.left = (4 + zrng() * 92) + "%";
+      d.style.top = (top + 30 + zrng() * Math.max(40, bottom - top - 70)) + "px";
+      d.style.background = zone.glow;
+      d.style.opacity = (0.14 + zrng() * 0.38).toFixed(2);
+      if (zrng() < 0.35) d.style.boxShadow = `0 0 ${(4 + zrng() * 8) | 0}px ${zone.glow}`;
+      path.appendChild(d);
+    }
+    for (let i = 0; i < 2; i++) {
+      const g = document.createElement("div");
+      g.className = "zone-glow";
+      const sz = 130 + zrng() * 160;
+      g.style.width = g.style.height = sz.toFixed(0) + "px";
+      g.style.left = (zrng() * 100) + "%";
+      g.style.top = (top + zrng() * Math.max(60, bottom - top - sz)) + "px";
+      g.style.background = `radial-gradient(circle, ${zone.glow}1d 0%, transparent 70%)`;
+      path.appendChild(g);
+    }
+
+    // banner at the zone's entrance (its first, i.e. lowest, node)
+    const firstL = z * ZONE_SIZE + 1;
+    const banner = document.createElement("div");
+    banner.className = "zone-banner";
+    banner.style.top = (bottom - (z === 0 ? 52 : 46)) + "px";
+    banner.style.color = zone.glow;
+    banner.style.borderColor = zone.glow + "55";
+    banner.textContent = zone.name + " · " + firstL + "–" + (firstL + ZONE_SIZE - 1);
+    path.appendChild(banner);
+  }
 
   for (let n = 1; n <= maxNode; n++) {
     // dotted connector to the next node
@@ -3237,13 +3397,14 @@ function applyBomb(r, c) {
    normal blocks vanish. No coins, no line/target progress — by design. */
 function destroyCells(cells) {
   busy = true;
-  let iceBroken = 0, gemsCollected = 0;
+  let iceBroken = 0, gemsCollected = 0, cratesBroken = 0;
   for (const [r, c] of cells) {
     const key = r + "," + c;
     const el = cellAt(r, c);
     const shardColor = gemCells[key] || grid[r][c] || "#fff";
     if (iceHP[key]) { delete iceHP[key]; iceBroken++; }
     if (gemCells[key]) { delete gemCells[key]; gemsCollected++; }
+    if (crateCells[key]) { delete crateCells[key]; cratesBroken++; }
     el.classList.add("clearing");
     spawnShards(el, shardColor, 6);
   }
@@ -3257,6 +3418,8 @@ function destroyCells(cells) {
       if (iObj && iceBroken) iObj.progress = Math.min(iObj.target, iObj.progress + iceBroken);
       const gObj = objectives.find(o => o.kind === "gems");
       if (gObj && gemsCollected) gObj.progress = Math.min(gObj.target, gObj.progress + gemsCollected);
+      const crObj = objectives.find(o => o.kind === "crates");
+      if (crObj && cratesBroken) crObj.progress = Math.min(crObj.target, crObj.progress + cratesBroken);
     }
     busy = false;
     render();
