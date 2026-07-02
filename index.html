@@ -763,7 +763,9 @@
     pointer-events: none;
   }
   .zone-banner {
-    position: absolute; left: 50%; transform: translateX(-50%);
+    position: absolute; transform: translateX(-50%);
+    max-width: 44%;
+    overflow: hidden; text-overflow: ellipsis;
     z-index: 1;
     font-size: 10px; font-weight: 700;
     letter-spacing: .18em; text-transform: uppercase;
@@ -3206,7 +3208,9 @@ const zoneFor = n => ZONES[Math.floor((n - 1) / ZONE_SIZE) % ZONES.length];
 function renderMap() {
   const path = document.getElementById("map-path");
   path.innerHTML = "";
-  const maxNode = Math.max(P.currentLevel + 14, 30);
+  // How far ahead the map draws. Levels are procedurally infinite; this
+  // is just the visible horizon — raise it any time for more.
+  const maxNode = Math.max(P.currentLevel + 14, 110);
   const H = maxNode * NODE_SPACING + 160;
   path.style.height = H + "px";
   const xFor = n => 50 + Math.sin(n * 0.85) * 26;            // % across
@@ -3261,11 +3265,17 @@ function renderMap() {
       path.appendChild(g);
     }
 
-    // banner at the zone's entrance (its first, i.e. lowest, node)
+    // banner at the zone's entrance (its first, i.e. lowest, node).
+    // The path winds around x=50%, so a centered banner can clash with
+    // node borders / star rows — place it on the side OPPOSITE the
+    // nodes nearest the boundary instead.
     const firstL = z * ZONE_SIZE + 1;
+    const nearX = z === 0 ? xFor(1)
+      : (xFor(firstL) + xFor(Math.max(1, firstL - 1))) / 2;
     const banner = document.createElement("div");
     banner.className = "zone-banner";
     banner.style.top = (bottom - (z === 0 ? 52 : 46)) + "px";
+    banner.style.left = (nearX >= 50 ? 27 : 73) + "%";
     banner.style.color = zone.glow;
     banner.style.borderColor = zone.glow + "55";
     banner.textContent = zone.name + " · " + firstL + "–" + (firstL + ZONE_SIZE - 1);
