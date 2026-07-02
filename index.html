@@ -965,6 +965,16 @@
       <span id="xoff-value">0.75</span> cells
     </label>
     <input type="range" id="xoff-slider" min="-2" max="2" step="0.25" value="0.75">
+    <label style="margin-top:10px;">
+      <span>X multiplier</span>
+      <span id="xmult-value">2</span>x
+    </label>
+    <input type="range" id="xmult-slider" min="1" max="3" step="0.1" value="2">
+    <label style="margin-top:10px;">
+      <span>Y multiplier</span>
+      <span id="ymult-value">1.5</span>x
+    </label>
+    <input type="range" id="ymult-slider" min="1" max="3" step="0.1" value="1.5">
   </div>
 
   <div id="drag-layer"></div>
@@ -1078,20 +1088,31 @@ const STREAK_MAX  = 5;     // cap (x1 .. x5)
 let TOUCH_LIFT = 3;
 
 /* TOUCH_OFFSET_X — constant horizontal offset (in cells) applied to the
-   floating piece on touch drags. The exact sideways analog of TOUCH_LIFT.
-   Positive = piece sits to the RIGHT of your finger, away from the hold
-   slot (bottom-left), which keeps accidental hold-drops rare.
-   This REPLACES the old velocity gain (TOUCH_GAIN_X): gain scaled your
-   motion away from the grab point, so the finger→piece mapping changed
-   with drag distance AND with which tray slot you grabbed from — on a
-   narrow phone screen that read as unpredictable drift. A fixed offset
-   keeps the finger→piece relationship identical for the entire drag and
-   for every drag. Vertical Y stays 1:1 (plus the lift); only X shifts.
-   Tunable live via the X-offset slider on phone.
-   IMPORTANT: the ghost preview applies the SAME offset, so what you
-   see is what gets placed — finger drives intent, but intent is
-   "the spot the shifted piece is showing." */
+   floating piece on touch drags. The sideways analog of TOUCH_LIFT.
+   Applied AFTER input amplification (below), so it's a fixed visual
+   shift regardless of how far the thumb has moved. */
 let TOUCH_OFFSET_X = 0.75;
+
+/* TOUCH_MULT_X / TOUCH_MULT_Y — INPUT AMPLIFICATION (Block Blast style).
+   The finger→piece mapping is NOT 1:1: motion is amplified relative to
+   where the drag STARTED:
+
+     piecePos = dragStart + (finger - dragStart) * mult   (per axis)
+
+   The point is thumb ergonomics — the thumb sweeps a small, comfortable
+   arc at the bottom of the screen while the piece glides across the
+   whole 8x8 board above. X is amplified harder than Y because the thumb
+   has less comfortable horizontal range than vertical.
+   Why this works now when the old "velocity gain" felt drifty:
+     - the grab anchor is the piece CENTROID, so the mapping is centered
+       and consistent for every piece;
+     - hold detection + ghost + drop all read the SAME amplified point,
+       so nothing on screen ever disagrees with the piece;
+     - round-based snapping keeps the ghost symmetric around the piece.
+   At drag start the piece sits exactly at finger + lift/offset, and
+   scales away from the anchor as you move. Both tunable live. 1 = 1:1. */
+let TOUCH_MULT_X = 2.0;
+let TOUCH_MULT_Y = 1.5;
 
 
 /* SKINS ---------------------------------------------------------------
@@ -1544,6 +1565,18 @@ function bindUI() {
   xoffSlider.addEventListener("input", () => {
     TOUCH_OFFSET_X = parseFloat(xoffSlider.value);
     xoffValue.textContent = xoffSlider.value;
+  });
+  const xmultSlider = document.getElementById("xmult-slider");
+  const xmultValue  = document.getElementById("xmult-value");
+  xmultSlider.addEventListener("input", () => {
+    TOUCH_MULT_X = parseFloat(xmultSlider.value);
+    xmultValue.textContent = xmultSlider.value;
+  });
+  const ymultSlider = document.getElementById("ymult-slider");
+  const ymultValue  = document.getElementById("ymult-value");
+  ymultSlider.addEventListener("input", () => {
+    TOUCH_MULT_Y = parseFloat(ymultSlider.value);
+    ymultValue.textContent = ymultSlider.value;
   });
   window.addEventListener("touchstart", () => {
     liftWrap.classList.add("show");
@@ -2220,6 +2253,7 @@ function startDrag(e, piece, pieceEl) {
 
   drag = { piece, pieceEl, grabDR, grabDC, floatEl, cs, gap, liftPx, isTouch,
            maxR, maxC, source, boardRect, holdRect, trayScale,
+           startX: e.clientX, startY: e.clientY,   // amplification anchor
            lastR: null, lastC: null, lastOverHold: false };
 
   // Capture the pointer so moves keep flowing to us even if the finger
@@ -2244,13 +2278,17 @@ function onDragMove(e) {
   const { piece, grabDR, grabDC, floatEl, cs, gap, liftPx, isTouch } = drag;
   const br = drag.boardRect;   // cached at grab — no layout work per frame
 
-  // X: the exact horizontal analog of touch lift — the raw finger plus
-  // a CONSTANT shift (TOUCH_OFFSET_X cells). 1:1 movement, no scaling,
-  // no dependence on where the drag started. The piece is rigidly glued
-  // TOUCH_LIFT cells above and TOUCH_OFFSET_X cells beside your finger
-  // for the whole drag. (Read from the global each frame so the debug
-  // slider affects an active drag live.)
+  // INPUT AMPLIFICATION: piecePos = dragStart + (finger - dragStart) * mult
+  // per axis, then the constant lift/offset on top. A small comfortable
+  // thumb arc at the bottom of the screen glides the piece across the
+  // whole board. Globals are read each frame so the sliders tune an
+  // active drag live. On mouse everything collapses to 1:1 + no offset.
   const offX = isTouch ? TOUCH_OFFSET_X * cs : 0;
+  const ampX = isTouch ? TOUCH_MULT_X : 1;
+  const ampY = isTouch ? TOUCH_MULT_Y : 1;
+  const { startX, startY } = drag;
+  const mapX = x => startX + (x - startX) * ampX + offX;
+  const mapY = y => startY + (y - startY) * ampY;
 
   // LATENCY COMPENSATION: the OS supplies a ~1-frame-ahead position
   // estimate via getPredictedEvents(). The VISUAL clone uses the
@@ -2264,10 +2302,10 @@ function onDragMove(e) {
   }
 
   // position the floating clone so the grabbed sub-cell sits under the
-  // (virtual) pointer position, then apply the vertical lift
+  // AMPLIFIED pointer position, then apply the vertical lift
   const cellStride = cs + gap;
-  let left = (pX + offX) - (grabDC * cellStride + cs / 2);
-  let top  =  pY         - (grabDR * cellStride + cs / 2) - liftPx;
+  let left = mapX(pX) - (grabDC * cellStride + cs / 2);
+  let top  = mapY(pY) - (grabDR * cellStride + cs / 2) - liftPx;
 
   // Clamp the floating piece so it stays within the viewport — otherwise
   // long horizontal pieces dragged near a screen edge run off-screen,
@@ -2294,10 +2332,12 @@ function onDragMove(e) {
   // the ghost flip exactly when the piece is visually closer to the next
   // cell, symmetrically in both directions, regardless of which sub-cell
   // was grabbed. That half-cell magnetism is the Block Blast snap feel.
-  // Computed from the RAW pointer (not the predicted one) so the drop
-  // always matches the last painted ghost.
-  const rawLeft = (e.clientX + offX) - (grabDC * cellStride + cs / 2);
-  const rawTop  =  e.clientY         - (grabDR * cellStride + cs / 2) - liftPx;
+  // Computed from the REAL pointer (not the predicted one) so the drop
+  // always matches the last painted ghost — but through the SAME
+  // amplified mapping as the visual clone, so ghost and piece agree.
+  const lx = mapX(e.clientX), ly = mapY(e.clientY);
+  const rawLeft = lx - (grabDC * cellStride + cs / 2);
+  const rawTop  = ly - (grabDR * cellStride + cs / 2) - liftPx;
   const originC = Math.round((rawLeft - br.left) / cellStride);
   const originR = Math.round((rawTop  - br.top)  / cellStride);
 
@@ -2327,8 +2367,8 @@ function onDragMove(e) {
   // triggers when the piece is VISIBLY over the slot — what you see is
   // what you drop, for the board and the hold slot alike. (On mouse,
   // lift/offset are 0, so this is identical to the old finger test.)
-  const pieceX = e.clientX + offX;
-  const pieceY = e.clientY - liftPx;
+  const pieceX = lx;
+  const pieceY = ly - liftPx;
   const overHold =
     pieceX >= hb.left   + insetX &&
     pieceX <= hb.right  - insetX &&
