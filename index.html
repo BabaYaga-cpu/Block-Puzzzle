@@ -372,8 +372,11 @@
   }
   .floating {
     position: absolute;
+    left: 0; top: 0;            /* position driven entirely by transform */
     display: grid;
     gap: var(--gap);
+    will-change: transform;     /* own compositor layer — no layout/paint per move */
+    transform-origin: center;   /* pickup pop + return tween scale from center */
   }
   .floating .fc {
     width: var(--cell-size); height: var(--cell-size);
@@ -2179,6 +2182,21 @@ function startDrag(e, piece, pieceEl) {
   }
   dragLayer.appendChild(floatEl);
 
+  // PICKUP POP — the clone scales up from tray size to full grid size in
+  // ~120ms with a slight overshoot. Position tracking is live from frame
+  // one and is NEVER animated; only this scale tween is. It runs on the
+  // independent `scale` property so it composes with the translate3d
+  // position writes, and it visually masks the jump up to TOUCH_LIFT.
+  const srcW = pieceEl.getBoundingClientRect().width;
+  const fltW = floatEl.getBoundingClientRect().width || 1;
+  const trayScale = Math.min(1, srcW / fltW) || 0.6;
+  try {
+    floatEl.animate(
+      [{ scale: String(trayScale) }, { scale: "1.08", offset: 0.7 }, { scale: "1" }],
+      { duration: 120, easing: "cubic-bezier(0.2, 0.8, 0.3, 1)" }
+    );
+  } catch (_) { /* ancient browser: no pop, still fully functional */ }
+
   // on touch, lift the piece TOUCH_LIFT cells above the finger so it's
   // visible, and shift it TOUCH_OFFSET_X cells sideways. Both are
   // CONSTANT for the whole drag — the finger→piece relationship never
@@ -2193,7 +2211,20 @@ function startDrag(e, piece, pieceEl) {
   // pick its piece up... but tagging it keeps onDragEnd unambiguous.)
   const source = pieceEl.closest("#hold-well") ? "hold" : "tray";
 
-  drag = { piece, pieceEl, grabDR, grabDC, floatEl, cs, gap, liftPx, isTouch, maxR, maxC, source };
+  // Cache board + hold rects ONCE per drag. getBoundingClientRect forces
+  // a synchronous layout pass; calling it on every pointermove (up to
+  // 120Hz on newer iPhones) is a hidden per-frame cost. Nothing moves
+  // during a drag, so grab-time values stay correct.
+  const boardRect = boardEl.getBoundingClientRect();
+  const holdRect  = holdEl.getBoundingClientRect();
+
+  drag = { piece, pieceEl, grabDR, grabDC, floatEl, cs, gap, liftPx, isTouch,
+           maxR, maxC, source, boardRect, holdRect, trayScale,
+           lastR: null, lastC: null, lastOverHold: false };
+
+  // Capture the pointer so moves keep flowing to us even if the finger
+  // wanders off the element or iOS gets creative near screen edges.
+  try { pieceEl.setPointerCapture(e.pointerId); } catch (_) {}
 
   window.addEventListener("pointermove", onDragMove);
   window.addEventListener("pointerup", onDragEnd);
@@ -2211,6 +2242,7 @@ function blockTouchScroll(e) { e.preventDefault(); }
 function onDragMove(e) {
   if (!drag) return;
   const { piece, grabDR, grabDC, floatEl, cs, gap, liftPx, isTouch } = drag;
+  const br = drag.boardRect;   // cached at grab — no layout work per frame
 
   // X: the exact horizontal analog of touch lift — the raw finger plus
   // a CONSTANT shift (TOUCH_OFFSET_X cells). 1:1 movement, no scaling,
@@ -2218,21 +2250,31 @@ function onDragMove(e) {
   // TOUCH_LIFT cells above and TOUCH_OFFSET_X cells beside your finger
   // for the whole drag. (Read from the global each frame so the debug
   // slider affects an active drag live.)
-  const br = boardEl.getBoundingClientRect();
-  const effectiveX = e.clientX + (isTouch ? TOUCH_OFFSET_X * cs : 0);
+  const offX = isTouch ? TOUCH_OFFSET_X * cs : 0;
+
+  // LATENCY COMPENSATION: the OS supplies a ~1-frame-ahead position
+  // estimate via getPredictedEvents(). The VISUAL clone uses the
+  // predicted point so it feels glued to the finger; LOGIC (ghost +
+  // drop) below uses the real point, so the committed placement can
+  // never disagree with the last ghost the player saw.
+  let pX = e.clientX, pY = e.clientY;
+  if (e.getPredictedEvents) {
+    const pred = e.getPredictedEvents();
+    if (pred.length) { pX = pred[pred.length - 1].clientX; pY = pred[pred.length - 1].clientY; }
+  }
 
   // position the floating clone so the grabbed sub-cell sits under the
   // (virtual) pointer position, then apply the vertical lift
   const cellStride = cs + gap;
-  let left = effectiveX - (grabDC * cellStride + cs / 2);
-  let top  = e.clientY  - (grabDR * cellStride + cs / 2) - liftPx;
+  let left = (pX + offX) - (grabDC * cellStride + cs / 2);
+  let top  =  pY         - (grabDR * cellStride + cs / 2) - liftPx;
 
   // Clamp the floating piece so it stays within the viewport — otherwise
   // long horizontal pieces dragged near a screen edge run off-screen,
   // and you lose sight of half the piece you're placing.
   // IMPORTANT: we clamp the VISUAL position only. The ghost preview (which
   // tells the game where you actually mean to place) is computed below
-  // from effectiveX — finger drives intent through the SAME offset, so
+  // from the raw pointer + the SAME lift/offset, so
   // ghost and piece always agree. The piece just visually slides in from
   // the edge to stay seen.
   const { maxR, maxC } = drag;
@@ -2242,23 +2284,25 @@ function onDragMove(e) {
   left = Math.max(margin, Math.min(left, window.innerWidth  - pieceW - margin));
   top  = Math.max(margin, Math.min(top,  window.innerHeight - pieceH - margin));
 
-  floatEl.style.left = left + "px";
-  floatEl.style.top  = top + "px";
+  // transform, not left/top: left/top dirties layout on every frame,
+  // translate3d stays on the compositor — the single biggest smoothness
+  // win on iPhone. (.floating sits at left:0/top:0, so translate == position.)
+  floatEl.style.transform = `translate3d(${left}px, ${top}px, 0)`;
 
-  // figure out which grid cell the grabbed sub-cell is hovering — use
-  // effectiveX so ghost stays under the piece, not under the raw finger
-  const pointerBoardX = effectiveX - br.left;
-  const pointerBoardY = e.clientY  - br.top - liftPx;
-  const hoverC = Math.floor(pointerBoardX / cellStride);
-  const hoverR = Math.floor(pointerBoardY / cellStride);
-  // origin of the piece = hovered cell minus the grab offset
-  const originR = hoverR - grabDR;
-  const originC = hoverC - grabDC;
+  // SNAP MAPPING: round the piece's (unclamped) top-left corner to the
+  // nearest cell. `round` — not `floor` of the grabbed sub-cell — makes
+  // the ghost flip exactly when the piece is visually closer to the next
+  // cell, symmetrically in both directions, regardless of which sub-cell
+  // was grabbed. That half-cell magnetism is the Block Blast snap feel.
+  // Computed from the RAW pointer (not the predicted one) so the drop
+  // always matches the last painted ghost.
+  const rawLeft = (e.clientX + offX) - (grabDC * cellStride + cs / 2);
+  const rawTop  =  e.clientY         - (grabDR * cellStride + cs / 2) - liftPx;
+  const originC = Math.round((rawLeft - br.left) / cellStride);
+  const originR = Math.round((rawTop  - br.top)  / cellStride);
 
   drag.originR = originR;
   drag.originC = originC;
-
-  paintGhost(piece.shape, originR, originC, piece.color);
 
   // --- hold-slot hover detection -------------------------------------
   // A piece from the TRAY can be dropped into the hold slot, but only if
@@ -2270,7 +2314,7 @@ function onDragMove(e) {
   // is ~12% smaller on each side. A piece grazing the edge during a
   // horizontal drag doesn't trigger — you have to land clearly inside.
   // (Pairs with the wider deadzone in CSS — Fix 1 + Fix 2 together.)
-  const hb = holdEl.getBoundingClientRect();
+  const hb = drag.holdRect;   // cached at grab time
   const HOLD_INSET = 0.12;
   const insetX = hb.width  * HOLD_INSET;
   const insetY = hb.height * HOLD_INSET;
@@ -2283,25 +2327,35 @@ function onDragMove(e) {
   // triggers when the piece is VISIBLY over the slot — what you see is
   // what you drop, for the board and the hold slot alike. (On mouse,
   // lift/offset are 0, so this is identical to the old finger test.)
-  const pieceX = effectiveX;
+  const pieceX = e.clientX + offX;
   const pieceY = e.clientY - liftPx;
   const overHold =
     pieceX >= hb.left   + insetX &&
     pieceX <= hb.right  - insetX &&
     pieceY >= hb.top    + insetY &&
     pieceY <= hb.bottom - insetY;
+  drag.overHold = overHold;
+
+  // DIRTY CHECK: ghost + hold highlight only need repainting when the
+  // SNAPPED state changes (origin cell or hold hover), not on every raw
+  // pointermove (up to 120Hz). The two querySelectorAll sweeps in
+  // paintGhost were the main per-move DOM cost — moves that stay inside
+  // one cell are now free.
+  if (originR === drag.lastR && originC === drag.lastC && overHold === drag.lastOverHold) return;
+  drag.lastR = originR; drag.lastC = originC; drag.lastOverHold = overHold;
+
   holdEl.classList.remove("drop-ok", "drop-bad");
-  drag.overHold = false;
   if (overHold) {
     const canHold = drag.source === "tray" && held === null;
     holdEl.classList.add(canHold ? "drop-ok" : "drop-bad");
-    drag.overHold = true;
     drag.canHold = canHold;
     // while hovering hold, the board ghost is misleading — clear it
     boardEl.querySelectorAll(".ghost,.ghost-bad,.will-clear").forEach(el => {
       el.classList.remove("ghost", "ghost-bad", "will-clear");
       el.style.removeProperty("--ghost-color");
     });
+  } else {
+    paintGhost(piece.shape, originR, originC, piece.color);
   }
 }
 
@@ -2355,9 +2409,8 @@ function paintGhost(shape, originR, originC, color) {
 
 function onDragEnd() {
   if (!drag) return;
-  const { piece, pieceEl, floatEl, originR, originC, source, overHold, canHold } = drag;
+  const { piece, pieceEl, floatEl, originR, originC, source, overHold, canHold, trayScale } = drag;
 
-  floatEl.remove();
   boardEl.querySelectorAll(".ghost,.ghost-bad,.will-clear").forEach(el => {
     el.classList.remove("ghost", "ghost-bad", "will-clear");
     el.style.removeProperty("--ghost-color");
@@ -2373,6 +2426,31 @@ function onDragEnd() {
 
   drag = null;
 
+  // RETURN TWEEN — on a failed drop, FLIP the clone back to its tray
+  // slot (~220ms ease-out, shrinking back to tray scale) instead of
+  // blinking out. Commit paths (place / hold) still remove the clone
+  // instantly: never animate the commit, only the failure.
+  const returnToTray = () => {
+    const home = pieceEl.getBoundingClientRect();
+    const W = floatEl.offsetWidth || 1, H = floatEl.offsetHeight || 1;
+    // scale runs around the clone's center, so aim center-at-center
+    const tx = home.left + home.width  / 2 - W / 2;
+    const ty = home.top  + home.height / 2 - H / 2;
+    const finish = () => {
+      floatEl.remove();
+      // don't un-fade the tray piece if it's already been re-grabbed
+      if (!drag || drag.pieceEl !== pieceEl) pieceEl.classList.remove("lifted");
+    };
+    try {
+      const anim = floatEl.animate(
+        [{ transform: `translate3d(${tx}px, ${ty}px, 0)`, scale: String(trayScale || 0.6) }],
+        { duration: 220, easing: "cubic-bezier(0.3, 0.9, 0.4, 1)", fill: "forwards" }
+      );
+      anim.onfinish = finish;
+      anim.oncancel = finish;
+    } catch (_) { finish(); }
+  };
+
   // --- CASE 1: dropped on the hold slot ------------------------------
   // Only valid if it was a TRAY piece AND hold is empty. Hold is NOT
   // swappable, by design — once full it stays full until the held piece
@@ -2381,6 +2459,7 @@ function onDragEnd() {
   // this came from hold itself), snap back to where it was.
   if (overHold) {
     if (canHold) {
+      floatEl.remove();   // instant commit
       // remove from its tray slot, move into hold
       const slotIndex = tray.findIndex(p => p && p.id === piece.id);
       if (slotIndex !== -1) tray[slotIndex] = null;
@@ -2394,7 +2473,7 @@ function onDragEnd() {
       afterTurn();
       return;
     } else {
-      pieceEl.classList.remove("lifted");
+      returnToTray();
       return;
     }
   }
@@ -2402,6 +2481,7 @@ function onDragEnd() {
   // --- CASE 2: dropped on the board ----------------------------------
   const valid = originR !== undefined && canPlace(piece.shape, originR, originC);
   if (valid) {
+    floatEl.remove();   // instant commit — zero-latency snap is the feel
     // if the piece came from hold, free the slot BEFORE placing — placePiece
     // looks in the tray to clear, and wouldn't know about hold otherwise
     if (source === "hold") held = null;
@@ -2409,8 +2489,8 @@ function onDragEnd() {
     return;
   }
 
-  // --- CASE 3: dropped on nothing valid — snap back -------------------
-  pieceEl.classList.remove("lifted");
+  // --- CASE 3: dropped on nothing valid — tween back to the tray ------
+  returnToTray();
 }
 
 /* =====================================================================
