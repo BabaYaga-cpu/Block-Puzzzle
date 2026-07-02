@@ -252,13 +252,19 @@
   }
   /* clearing animation */
   .cell.clearing {
-    animation: clearpop .42s ease forwards;
+    animation: clearpop .3s ease forwards;
+    animation-fill-mode: both;   /* holds frame 0 during its stagger delay */
     z-index: 2;
   }
   @keyframes clearpop {
-    0%   { filter: brightness(1); transform: scale(1); }
-    30%  { filter: brightness(2.4); transform: scale(1.12); }
-    100% { filter: brightness(1); transform: scale(.2); opacity: 0; }
+    0%   { filter: brightness(1) saturate(1); transform: scale(1);
+           box-shadow: 0 0 0 rgba(255,255,255,0); }
+    28%  { filter: brightness(3.4) saturate(1.5); transform: scale(1.32);
+           box-shadow: 0 0 24px 6px rgba(255,255,255,.95), 0 0 48px 12px rgba(255,255,255,.35); }
+    60%  { filter: brightness(2) saturate(1.2); transform: scale(.9);
+           box-shadow: 0 0 14px 2px rgba(255,255,255,.4); }
+    100% { filter: brightness(1); transform: scale(.15); opacity: 0;
+           box-shadow: 0 0 0 rgba(255,255,255,0); }
   }
 
   /* ---- TRAY + HOLD ------------------------------------------------ */
@@ -609,7 +615,8 @@
   .cell.ice-hit { animation: icehit .42s ease; }
   @keyframes icehit {
     0%   { filter: brightness(1);   transform: scale(1); }
-    35%  { filter: brightness(2.2); transform: scale(1.08); }
+    35%  { filter: brightness(2.8); transform: scale(1.14);
+           box-shadow: 0 0 18px 4px rgba(210,238,255,.8); }
     100% { filter: brightness(1);   transform: scale(1); }
   }
   .cell.stone {
@@ -836,6 +843,43 @@
     z-index: 1;
   }
 
+  /* ---- CLEAR EXPLOSION ---------------------------------------------------- */
+  /* Shards fly out of every cleared cell; direction/spin/duration set per
+     shard via CSS custom props from JS. Lives in a fixed overlay layer. */
+  #fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
+  .shard {
+    position: absolute;
+    width: 10px; height: 10px;
+    border-radius: 3px;
+    background-image: radial-gradient(circle at 32% 28%, rgba(255,255,255,.9), transparent 55%);
+    box-shadow: 0 0 10px 2px rgba(255,255,255,.55);
+    animation: shardfly var(--dur, .6s) cubic-bezier(.17, .67, .4, 1) forwards;
+  }
+  /* white flash ring expanding out of each cleared cell */
+  .burst-ring {
+    position: absolute;
+    border: 3px solid rgba(255,255,255,.95);
+    border-radius: 50%;
+    box-shadow: 0 0 12px rgba(255,255,255,.7), inset 0 0 8px rgba(255,255,255,.5);
+    animation: ringout .4s ease-out forwards;
+  }
+  @keyframes ringout {
+    0%   { transform: scale(.25); opacity: 1; }
+    100% { transform: scale(2.1); opacity: 0; }
+  }
+  @keyframes shardfly {
+    0%   { transform: translate(0, 0) rotate(0) scale(1); opacity: 1; }
+    100% { transform: translate(var(--dx, 0px), var(--dy, 0px)) rotate(var(--rot, 360deg)) scale(.3); opacity: 0; }
+  }
+  /* multi-line clears rattle the whole board */
+  .board-wrap.shake { animation: boardshake .3s ease; }
+  @keyframes boardshake {
+    0%, 100% { transform: translate(0, 0); }
+    25% { transform: translate(2px, -2px); }
+    50% { transform: translate(-2px, 2px); }
+    75% { transform: translate(1px, -1px); }
+  }
+
   /* ---- WIN CELEBRATION --------------------------------------------------- */
   #end-scrim .modal { position: relative; overflow: hidden; }
   .end-stars span { opacity: 0; transform: scale(.3); display: inline-block; }
@@ -921,6 +965,7 @@
   </div>
 
   <div id="drag-layer"></div>
+  <div id="fx-layer"></div>
 
   <!-- ===== SAGA MAP (home screen) ===== -->
   <div class="map-screen" id="map-screen">
@@ -1729,7 +1774,7 @@ function placePiece(piece, originR, originC) {
     // this placement cleared something -> streak grows
     streak = Math.min(streak + 1, STREAK_MAX);
     stats.bestStreak = Math.max(stats.bestStreak, streak);
-    clearLines(fullRows, fullCols);
+    clearLines(fullRows, fullCols, placed);
   } else {
     // placement cleared nothing -> streak breaks
     if (streak > 0) toast("Streak broken");
@@ -1758,7 +1803,7 @@ function updateStreakBadge() {
 }
 
 /* animate + remove cleared lines, then score */
-function clearLines(rows, cols) {
+function clearLines(rows, cols, originCells) {
   busy = true;
   const toClear = new Set();
   rows.forEach(r => { for (let c = 0; c < GRID_SIZE; c++) toClear.add(r + "," + c); });
@@ -1768,13 +1813,38 @@ function clearLines(rows, cols) {
   let objHits = 0;
   toClear.forEach(key => { if (targets.includes(key)) objHits++; });
 
-  // visual: pop the clearing cells — ice that will SURVIVE this clear
-  // (still 2 hits left) cracks in place instead of popping away
+  // visual: SHOCKWAVE — cells pop outward from where the piece landed,
+  // each with a small stagger by distance, and burst into shards. Ice
+  // that will SURVIVE this clear (still 2 hits) cracks in place instead.
+  let epR = 3.5, epC = 3.5;                       // epicenter (board center fallback)
+  if (originCells && originCells.length) {
+    epR = originCells.reduce((s, p) => s + p[0], 0) / originCells.length;
+    epC = originCells.reduce((s, p) => s + p[1], 0) / originCells.length;
+  }
   toClear.forEach(key => {
     const [r, c] = key.split(",").map(Number);
-    if (iceHP[key] > 1) cellAt(r, c).classList.add("ice-hit");
-    else cellAt(r, c).classList.add("clearing");
+    const el = cellAt(r, c);
+    const delay = Math.round(Math.hypot(r - epR, c - epC) * 18);   // ms, max ~130
+    el.style.animationDelay = delay + "ms";
+    if (iceHP[key] > 1) {
+      el.classList.add("ice-hit");
+      setTimeout(() => spawnShards(el, "#cfe8ff", 3), delay);      // icy chips
+    } else {
+      el.classList.add("clearing");
+      const shardColor = gemCells[key] || grid[r][c] || "#fff";
+      const n = gemCells[key] ? 8 : 5;                              // gems burst bigger
+      setTimeout(() => spawnShards(el, shardColor, n), delay);
+    }
   });
+  if (rows.length + cols.length >= 2) {
+    const wrap = boardEl.parentElement;
+    if (wrap && wrap.classList) {
+      wrap.classList.remove("shake");
+      void wrap.offsetWidth;
+      wrap.classList.add("shake");
+      setTimeout(() => wrap.classList.remove("shake"), 320);
+    }
+  }
 
   const lines = rows.length + cols.length;
   stats.linesCleared += lines;
@@ -1807,6 +1877,7 @@ function clearLines(rows, cols) {
     toClear.forEach(key => {
       const [r, c] = key.split(",").map(Number);
       const el = cellAt(r, c);
+      el.style.animationDelay = "";
       if (iceHP[key]) {
         iceHP[key]--;
         if (iceHP[key] <= 0) {
@@ -3041,9 +3112,12 @@ function destroyCells(cells) {
   let iceBroken = 0, gemsCollected = 0;
   for (const [r, c] of cells) {
     const key = r + "," + c;
+    const el = cellAt(r, c);
+    const shardColor = gemCells[key] || grid[r][c] || "#fff";
     if (iceHP[key]) { delete iceHP[key]; iceBroken++; }
     if (gemCells[key]) { delete gemCells[key]; gemsCollected++; }
-    cellAt(r, c).classList.add("clearing");
+    el.classList.add("clearing");
+    spawnShards(el, shardColor, 6);
   }
   setTimeout(() => {
     for (const [r, c] of cells) {
@@ -3119,6 +3193,41 @@ function acceptRescue() {
   }
   updateHUD();
   render();
+}
+
+/* =====================================================================
+   CLEAR EXPLOSION — shard particles from a cleared cell
+   ===================================================================== */
+function spawnShards(cellEl, color, count) {
+  const fx = document.getElementById("fx-layer");
+  if (!fx || !cellEl || !cellEl.getBoundingClientRect) return;
+  const rect = cellEl.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+  // expanding white flash ring, one per cell
+  const ring = document.createElement("div");
+  ring.className = "burst-ring";
+  const rs = Math.max(rect.width, 24);
+  ring.style.left = (cx - rs / 2) + "px";
+  ring.style.top = (cy - rs / 2) + "px";
+  ring.style.width = rs + "px";
+  ring.style.height = rs + "px";
+  fx.appendChild(ring);
+  setTimeout(() => ring.remove(), 450);
+  for (let i = 0; i < count; i++) {
+    const p = document.createElement("div");
+    p.className = "shard";
+    p.style.left = (cx - 4) + "px";
+    p.style.top = (cy - 4) + "px";
+    p.style.background = color;
+    const ang = Math.random() * Math.PI * 2;
+    const dist = 28 + Math.random() * 55;
+    p.style.setProperty("--dx", (Math.cos(ang) * dist).toFixed(0) + "px");
+    p.style.setProperty("--dy", (Math.sin(ang) * dist - 18).toFixed(0) + "px");  // slight upward bias
+    p.style.setProperty("--rot", ((Math.random() < .5 ? -1 : 1) * (240 + Math.random() * 400)).toFixed(0) + "deg");
+    p.style.setProperty("--dur", (0.45 + Math.random() * 0.3).toFixed(2) + "s");
+    fx.appendChild(p);
+    setTimeout(() => p.remove(), 850);
+  }
 }
 
 /* =====================================================================
