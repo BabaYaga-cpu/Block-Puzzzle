@@ -824,6 +824,18 @@
   }
   html.targeting .board { cursor: crosshair; }
 
+  /* ---- LINE-CLEAR PREVIEW ------------------------------------------------ */
+  /* While dragging: every cell of a row/column that WOULD complete if the
+     piece dropped here lights up. Reads as "drop it — this clears". */
+  .cell.will-clear {
+    filter: brightness(1.5) saturate(1.15);
+    box-shadow:
+      0 0 14px rgba(255,255,255,.35),
+      inset 0 0 0 2px rgba(255,255,255,.6);
+    transition: filter .08s ease;
+    z-index: 1;
+  }
+
   /* ---- WIN CELEBRATION --------------------------------------------------- */
   #end-scrim .modal { position: relative; overflow: hidden; }
   .end-stars span { opacity: 0; transform: scale(.3); display: inline-block; }
@@ -898,9 +910,9 @@
   <div class="debug-slider" id="lift-slider-wrap">
     <label>
       <span>Touch lift</span>
-      <span id="lift-value">4</span> cells
+      <span id="lift-value">3</span> cells
     </label>
-    <input type="range" id="lift-slider" min="0" max="8" step="0.5" value="4">
+    <input type="range" id="lift-slider" min="0" max="8" step="0.5" value="3">
     <label style="margin-top:10px;">
       <span>X velocity gain</span>
       <span id="gainx-value">1.5</span>x
@@ -1013,9 +1025,9 @@ const STREAK_MAX  = 5;     // cap (x1 .. x5)
 
 /* TOUCH_LIFT — how many cells above the finger the floating piece sits,
    so your thumb doesn't cover the landing spot. Only applies on touch
-   input (mouse drags 1:1). Default 4 cells — finger sits just below the
+   input (mouse drags 1:1). Default 3 cells — finger sits just below the
    grid, piece floats clearly above. */
-let TOUCH_LIFT = 3.5;
+let TOUCH_LIFT = 3;
 
 /* TOUCH_GAIN_X — horizontal velocity gain on touch drags. 1.0 = pure
    1:1 (the piece moves exactly with your finger). 1.5 means a small
@@ -2207,8 +2219,8 @@ function onDragMove(e) {
     drag.overHold = true;
     drag.canHold = canHold;
     // while hovering hold, the board ghost is misleading — clear it
-    boardEl.querySelectorAll(".ghost,.ghost-bad").forEach(el => {
-      el.classList.remove("ghost", "ghost-bad");
+    boardEl.querySelectorAll(".ghost,.ghost-bad,.will-clear").forEach(el => {
+      el.classList.remove("ghost", "ghost-bad", "will-clear");
       el.style.removeProperty("--ghost-color");
     });
   }
@@ -2216,8 +2228,8 @@ function onDragMove(e) {
 
 function paintGhost(shape, originR, originC, color) {
   // clear any previous ghost
-  boardEl.querySelectorAll(".ghost,.ghost-bad").forEach(el => {
-    el.classList.remove("ghost", "ghost-bad");
+  boardEl.querySelectorAll(".ghost,.ghost-bad,.will-clear").forEach(el => {
+    el.classList.remove("ghost", "ghost-bad", "will-clear");
     el.style.removeProperty("--ghost-color");
   });
 
@@ -2240,6 +2252,26 @@ function paintGhost(shape, originR, originC, color) {
       el.classList.add("ghost-bad");
     }
   }
+
+  /* LINE-CLEAR PREVIEW: simulate the drop — any row/column that would be
+     completed by this placement gets .will-clear along its full length. */
+  if (ok) {
+    const placedSet = new Set(
+      shape.cells.map(([dr, dc]) => (originR + dr) + "," + (originC + dc))
+    );
+    for (let r = 0; r < GRID_SIZE; r++) {
+      let full = true;
+      for (let c = 0; c < GRID_SIZE; c++)
+        if (!grid[r][c] && !placedSet.has(r + "," + c)) { full = false; break; }
+      if (full) for (let c = 0; c < GRID_SIZE; c++) cellAt(r, c).classList.add("will-clear");
+    }
+    for (let c = 0; c < GRID_SIZE; c++) {
+      let full = true;
+      for (let r = 0; r < GRID_SIZE; r++)
+        if (!grid[r][c] && !placedSet.has(r + "," + c)) { full = false; break; }
+      if (full) for (let r = 0; r < GRID_SIZE; r++) cellAt(r, c).classList.add("will-clear");
+    }
+  }
 }
 
 function onDragEnd() {
@@ -2247,8 +2279,8 @@ function onDragEnd() {
   const { piece, pieceEl, floatEl, originR, originC, source, overHold, canHold } = drag;
 
   floatEl.remove();
-  boardEl.querySelectorAll(".ghost,.ghost-bad").forEach(el => {
-    el.classList.remove("ghost", "ghost-bad");
+  boardEl.querySelectorAll(".ghost,.ghost-bad,.will-clear").forEach(el => {
+    el.classList.remove("ghost", "ghost-bad", "will-clear");
     el.style.removeProperty("--ghost-color");
   });
   // clear any hold-slot hover highlight from onDragMove
