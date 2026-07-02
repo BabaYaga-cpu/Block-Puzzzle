@@ -6,6 +6,8 @@
     2. Does a board objective create a "hmm, let me think" moment?
     3. Does the coin / streak / shop loop feel rewarding?
 
+    hi
+
   What's IN:  8x8 grid · three-piece tray · drag-and-drop · row/column
               clears · relax mode · one objective · coins · STREAK
               MULTIPLIER · SKIN SHOP (block colors + backgrounds) ·
@@ -958,10 +960,10 @@
     </label>
     <input type="range" id="lift-slider" min="0" max="8" step="0.5" value="3">
     <label style="margin-top:10px;">
-      <span>X velocity gain</span>
-      <span id="gainx-value">1.5</span>x
+      <span>X offset</span>
+      <span id="xoff-value">0.75</span> cells
     </label>
-    <input type="range" id="gainx-slider" min="1" max="2.5" step="0.1" value="1.5">
+    <input type="range" id="xoff-slider" min="-2" max="2" step="0.25" value="0.75">
   </div>
 
   <div id="drag-layer"></div>
@@ -1074,20 +1076,21 @@ const STREAK_MAX  = 5;     // cap (x1 .. x5)
    grid, piece floats clearly above. */
 let TOUCH_LIFT = 3;
 
-/* TOUCH_GAIN_X — horizontal velocity gain on touch drags. 1.0 = pure
-   1:1 (the piece moves exactly with your finger). 1.5 means a small
-   horizontal thumb motion sends the piece 1.5x as far. The purpose is
-   to make the piece "outrun" the finger sideways so accidental drops
-   into the hold slot during normal placement drags become much harder
-   — by the time your finger swings toward hold, the piece is already
-   past it. This is genuine velocity gain, NOT a static offset: the
-   piece sits exactly on your finger when you grab it, and scales away
-   from your grab point as you move. Vertical Y stays 1:1; only X is
-   scaled. Tunable live via the X-gain slider on phone.
-   IMPORTANT: the ghost preview applies the SAME scaling, so what you
+/* TOUCH_OFFSET_X — constant horizontal offset (in cells) applied to the
+   floating piece on touch drags. The exact sideways analog of TOUCH_LIFT.
+   Positive = piece sits to the RIGHT of your finger, away from the hold
+   slot (bottom-left), which keeps accidental hold-drops rare.
+   This REPLACES the old velocity gain (TOUCH_GAIN_X): gain scaled your
+   motion away from the grab point, so the finger→piece mapping changed
+   with drag distance AND with which tray slot you grabbed from — on a
+   narrow phone screen that read as unpredictable drift. A fixed offset
+   keeps the finger→piece relationship identical for the entire drag and
+   for every drag. Vertical Y stays 1:1 (plus the lift); only X shifts.
+   Tunable live via the X-offset slider on phone.
+   IMPORTANT: the ghost preview applies the SAME offset, so what you
    see is what gets placed — finger drives intent, but intent is
-   "the spot the scaled piece is showing." */
-let TOUCH_GAIN_X = 1.5;
+   "the spot the shifted piece is showing." */
+let TOUCH_OFFSET_X = 0.75;
 
 /* SKINS ---------------------------------------------------------------
    Two kinds for now: "blocks" (recolors every placed piece) and "bg"
@@ -1534,11 +1537,11 @@ function bindUI() {
     TOUCH_LIFT = parseFloat(liftSlider.value);
     liftValue.textContent = liftSlider.value;
   });
-  const gainxSlider = document.getElementById("gainx-slider");
-  const gainxValue  = document.getElementById("gainx-value");
-  gainxSlider.addEventListener("input", () => {
-    TOUCH_GAIN_X = parseFloat(gainxSlider.value);
-    gainxValue.textContent = gainxSlider.value;
+  const xoffSlider = document.getElementById("xoff-slider");
+  const xoffValue  = document.getElementById("xoff-value");
+  xoffSlider.addEventListener("input", () => {
+    TOUCH_OFFSET_X = parseFloat(xoffSlider.value);
+    xoffValue.textContent = xoffSlider.value;
   });
   window.addEventListener("touchstart", () => {
     liftWrap.classList.add("show");
@@ -2178,15 +2181,12 @@ function startDrag(e, piece, pieceEl) {
   dragLayer.appendChild(floatEl);
 
   // on touch, lift the piece TOUCH_LIFT cells above the finger so it's
-  // visible. Vertical Y stays 1:1; horizontal X gets a velocity gain
-  // (TOUCH_GAIN_X) applied to the delta from where the drag STARTED —
-  // so the piece sits exactly on your finger when you grab it, then
-  // amplifies sideways motion away from that point. This is what makes
-  // small thumb wiggles "outrun" the finger horizontally and dodge the
-  // hold slot during normal placement drags.
+  // visible, and shift it TOUCH_OFFSET_X cells sideways. Both are
+  // CONSTANT for the whole drag — the finger→piece relationship never
+  // changes, no matter how far or from where you drag. (This replaced
+  // the old startX-anchored velocity gain, which drifted on phones.)
   const isTouch = e.pointerType === "touch";
   const liftPx = isTouch ? cs * TOUCH_LIFT : 0;
-  const startX = e.clientX;                          // grab origin (fixed for the drag)
 
   // where did this piece come from? a tray slot, or the hold slot?
   // (a piece dragged FROM hold can only be placed on the board — it can't
@@ -2194,7 +2194,7 @@ function startDrag(e, piece, pieceEl) {
   // pick its piece up... but tagging it keeps onDragEnd unambiguous.)
   const source = pieceEl.closest("#hold-well") ? "hold" : "tray";
 
-  drag = { piece, pieceEl, grabDR, grabDC, floatEl, cs, gap, liftPx, isTouch, startX, maxR, maxC, source };
+  drag = { piece, pieceEl, grabDR, grabDC, floatEl, cs, gap, liftPx, isTouch, maxR, maxC, source };
 
   window.addEventListener("pointermove", onDragMove);
   window.addEventListener("pointerup", onDragEnd);
@@ -2211,17 +2211,15 @@ function blockTouchScroll(e) { e.preventDefault(); }
 
 function onDragMove(e) {
   if (!drag) return;
-  const { piece, grabDR, grabDC, floatEl, cs, gap, liftPx, isTouch, startX } = drag;
+  const { piece, grabDR, grabDC, floatEl, cs, gap, liftPx, isTouch } = drag;
 
-  // VELOCITY GAIN ON X: effectiveX is what we use in place of the raw
-  // finger X. At drag-start, effectiveX === startX (the piece sits
-  // exactly on your finger). As your finger moves away from startX,
-  // effectiveX moves gainX times as far in the same direction. Y stays
-  // 1:1; only the horizontal axis is scaled.
-  // Read TOUCH_GAIN_X from the global each frame so sliding the debug
+  // CONSTANT X OFFSET: effectiveX is what we use in place of the raw
+  // finger X — the finger plus a fixed sideways shift (TOUCH_OFFSET_X
+  // cells), the exact horizontal analog of liftPx. Same value for the
+  // whole drag: no scaling, no dependence on where the drag started.
+  // Read TOUCH_OFFSET_X from the global each frame so sliding the debug
   // slider mid-drag affects the active drag in real time.
-  const gainX = isTouch ? TOUCH_GAIN_X : 1;
-  const effectiveX = startX + (e.clientX - startX) * gainX;
+  const effectiveX = e.clientX + (isTouch ? TOUCH_OFFSET_X * cs : 0);
 
   // position the floating clone so the grabbed sub-cell sits under the
   // (virtual) pointer position, then apply the vertical lift
@@ -2234,7 +2232,7 @@ function onDragMove(e) {
   // and you lose sight of half the piece you're placing.
   // IMPORTANT: we clamp the VISUAL position only. The ghost preview (which
   // tells the game where you actually mean to place) is computed below
-  // from effectiveX — finger drives intent through the SAME scaling, so
+  // from effectiveX — finger drives intent through the SAME offset, so
   // ghost and piece always agree. The piece just visually slides in from
   // the edge to stay seen.
   const { maxR, maxC } = drag;
