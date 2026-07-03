@@ -226,15 +226,32 @@
   .cell .target {
     position: absolute; inset: 0;
     border-radius: 8px;
-    border: 2px solid var(--mint);
-    box-shadow: 0 0 14px rgba(132,210,191,.5), inset 0 0 10px rgba(132,210,191,.25);
+    border: 3px solid var(--mint);
+    box-shadow: 0 0 16px rgba(132,210,191,.6), inset 0 0 10px rgba(132,210,191,.3);
     animation: pulse 2.4s ease-in-out infinite;
     pointer-events: none;
   }
-  /* a target cell that's currently covered by a piece keeps a hint ring */
+  /* center pip — a solid dot with a dark contrast ring so the target still
+     reads clearly once a piece color fills the cell on top of it. */
+  .cell .target::before {
+    content: "";
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 38%; height: 38%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: var(--mint);
+    box-shadow: 0 0 0 2px rgba(0,0,0,.5), 0 0 9px 2px rgba(132,210,191,.8);
+  }
+  /* a target cell that's currently covered by a piece keeps a strong ring
+     AND a bright white pip so it stays obvious against any block color. */
   .cell.filled .target {
-    border-color: rgba(255,255,255,.85);
-    box-shadow: 0 0 12px rgba(255,255,255,.4);
+    border-color: rgba(255,255,255,.95);
+    box-shadow: 0 0 14px rgba(255,255,255,.55), inset 0 0 0 2px rgba(0,0,0,.3);
+  }
+  .cell.filled .target::before {
+    background: #fff;
+    box-shadow: 0 0 0 2px rgba(0,0,0,.55), 0 0 10px 2px rgba(255,255,255,.9);
   }
 
   /* ghost preview while dragging */
@@ -857,6 +874,31 @@
   .modal-btn:active { transform: scale(.97); }
   .modal-btn.primary   { background: var(--gold); color: #2a1c08; }
   .modal-btn.secondary { background: var(--panel-hi); color: var(--text); border: 1px solid var(--line); }
+
+  /* ---- ROTATE CHOOSER --------------------------------------------- */
+  .rotate-preview {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 120px;
+    margin: 6px 0 14px;
+    padding: 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+  .rotate-preview .piece { cursor: default; }
+  .rotate-turn-row { display: flex; gap: 8px; justify-content: center; }
+  .rotate-turn {
+    flex: 1;
+    background: var(--panel-hi);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font-family: inherit; font-size: 20px; font-weight: 600;
+    padding: 12px; cursor: pointer;
+    transition: transform .1s ease, filter .15s ease;
+  }
+  .rotate-turn:active { transform: scale(.95); }
+  .rotate-turn#rotate-180 { font-size: 15px; }
   .end-stars {
     display: flex; justify-content: center; gap: 10px;
     font-size: 44px; margin: 10px 0 4px;
@@ -1289,6 +1331,27 @@
     </div>
   </div>
 
+  <!-- ===== ROTATE POWER-UP CHOOSER ===== -->
+  <div class="scrim" id="rotate-scrim">
+    <div class="modal rotate-modal">
+      <div class="modal-head">
+        <h2>Rotate piece</h2>
+        <button class="close" data-close="rotate-scrim">&times;</button>
+      </div>
+      <p class="modal-sub">Turn the piece however you like, then Apply. Costs one Rotate.</p>
+      <div id="rotate-preview" class="rotate-preview"></div>
+      <div class="rotate-turn-row">
+        <button class="rotate-turn" id="rotate-ccw" title="Rotate left">&#8634;</button>
+        <button class="rotate-turn" id="rotate-180" title="Half turn">180&deg;</button>
+        <button class="rotate-turn" id="rotate-cw" title="Rotate right">&#8635;</button>
+      </div>
+      <div class="modal-btn-row">
+        <button class="modal-btn secondary" id="rotate-cancel">Cancel</button>
+        <button class="modal-btn primary" id="rotate-apply">Apply</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 "use strict";
 
@@ -1335,7 +1398,7 @@ let TOUCH_LIFT = 3;
    floating piece on touch drags. The sideways analog of TOUCH_LIFT.
    Applied AFTER input amplification (below), so it's a fixed visual
    shift regardless of how far the thumb has moved. */
-let TOUCH_OFFSET_X = 0.75;
+let TOUCH_OFFSET_X = 0.25;
 
 /* TOUCH_MULT_X / TOUCH_MULT_Y — INPUT AMPLIFICATION (Block Blast style).
    The finger→piece mapping is NOT 1:1: motion is amplified relative to
@@ -1629,7 +1692,7 @@ const POWERUPS = [
   { id: "shuffle", name: "Shuffle", icon: "\u{1F504}", price: 100,
     desc: "Redeal the tray for three fresh pieces." },
   { id: "rotate",  name: "Rotate",  icon: "\u21bb", price: 120,
-    desc: "Tap a tray piece to rotate it 90\u00b0." },
+    desc: "Tap a tray piece, then choose how it turns." },
 ];
 const RESCUE_COST = 60;    // near-miss continue: +5 moves
 const RESCUE_MOVES = 5;
@@ -1896,6 +1959,17 @@ function bindUI() {
     });
   });
 
+  // Rotate power-up chooser: turn buttons preview live; Apply commits.
+  document.getElementById("rotate-ccw").addEventListener("click", () => turnRotatePreview("ccw"));
+  document.getElementById("rotate-cw").addEventListener("click", () => turnRotatePreview("cw"));
+  document.getElementById("rotate-180").addEventListener("click", () => turnRotatePreview("180"));
+  document.getElementById("rotate-cancel").addEventListener("click", closeRotateChooser);
+  document.getElementById("rotate-apply").addEventListener("click", applyRotateChoice);
+  // backdrop / close (x) should also drop the uncommitted working copy
+  document.getElementById("rotate-scrim").addEventListener("click", e => {
+    if (e.target.id === "rotate-scrim" || e.target.dataset.close) rotateChoice = null;
+  });
+
   // The hold well is its own grab target — same approach as tray slots,
   // so tapping anywhere in the well picks up the held piece (no need to
   // hit a sub-cell). Handler reads `held` live at click-time.
@@ -2019,7 +2093,12 @@ function dealTray() {
 }
 
 /* rotate a shape 90\u00b0 clockwise (fresh object — PIECES stay pristine) */
-function rotateShape(shape) {
+function rotateShape(shape, dir) {
+  // dir: "cw" (default) or "ccw". A half turn is just two turns.
+  if (dir === "ccw") {
+    const maxC = Math.max(...shape.cells.map(c => c[1]));
+    return { ...shape, cells: shape.cells.map(([r, c]) => [maxC - c, r]) };
+  }
   const maxR = Math.max(...shape.cells.map(c => c[0]));
   return { ...shape, cells: shape.cells.map(([r, c]) => [c, maxR - r]) };
 }
@@ -2586,16 +2665,9 @@ function startDrag(e, piece, pieceEl) {
 
   // ROTATE power-up armed: this tap rotates the piece instead of dragging
   if (armedPowerup === "rotate") {
-    P.items.rotate--;
-    persist();
-    disarmPowerup();
-    piece.shape = rotateShape(piece.shape);
-    // render() only rebuilds a slot when the piece ID changes — rotation
-    // keeps the object, so give it a fresh ID or the DOM never repaints.
-    piece.id = ++pieceId;
-    render();
-    toast("Rotated");
-    saveSnapshot();
+    // Open the orientation chooser instead of rotating blindly. The item
+    // is spent only when the player Applies a real change (see the chooser).
+    openRotateChooser(piece);
     return;
   }
 
@@ -3962,6 +4034,73 @@ function renderMap() {
 /* =====================================================================
    POWER-UPS — arm, target, apply
    ===================================================================== */
+/* =====================================================================
+   ROTATE POWER-UP — orientation chooser
+   Tapping a tray/hold piece with Rotate armed opens a modal that previews
+   the piece and lets the player turn it left / right / 180 as many times
+   as they like. The item is spent only on Apply, and only if the piece
+   actually changed orientation; Cancel/close leaves piece and item alone.
+   ===================================================================== */
+let rotateChoice = null;   // { piece, shape } while the chooser is open
+
+function openRotateChooser(piece) {
+  // detached copy of the shape so nothing commits until Apply
+  rotateChoice = {
+    piece,
+    shape: { ...piece.shape, cells: piece.shape.cells.map(([r, c]) => [r, c]) },
+  };
+  renderRotatePreview();
+  document.getElementById("rotate-scrim").classList.add("open");
+}
+
+function renderRotatePreview() {
+  const wrap = document.getElementById("rotate-preview");
+  if (!wrap || !rotateChoice) return;
+  wrap.innerHTML = "";
+  wrap.appendChild(buildPieceEl({
+    id: "rot-preview",
+    shape: rotateChoice.shape,
+    color: rotateChoice.piece.color,
+  }));
+}
+
+function turnRotatePreview(dir) {
+  if (!rotateChoice) return;
+  const turns = dir === "180" ? 2 : 1;
+  const d = dir === "ccw" ? "ccw" : "cw";
+  for (let i = 0; i < turns; i++) rotateChoice.shape = rotateShape(rotateChoice.shape, d);
+  renderRotatePreview();
+}
+
+function sameCells(a, b) {
+  if (a.length !== b.length) return false;
+  const key = c => c[0] + "," + c[1];
+  const set = new Set(a.map(key));
+  return b.every(c => set.has(key(c)));
+}
+
+function closeRotateChooser() {
+  document.getElementById("rotate-scrim").classList.remove("open");
+  rotateChoice = null;
+}
+
+function applyRotateChoice() {
+  if (!rotateChoice) return;
+  const { piece, shape } = rotateChoice;
+  // net-zero rotation: treat as cancel, never burn the item
+  if (sameCells(shape.cells, piece.shape.cells)) { closeRotateChooser(); return; }
+  P.items.rotate--;
+  persist();
+  disarmPowerup();
+  piece.shape = shape;
+  // render() only rebuilds a slot when the piece ID changes.
+  piece.id = ++pieceId;
+  render();
+  closeRotateChooser();
+  toast("Rotated");
+  saveSnapshot();
+}
+
 function renderPowerupBar() {
   const bar = document.getElementById("pu-bar");
   if (!bar) return;
