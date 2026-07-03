@@ -1087,10 +1087,7 @@
       <p class="modal-sub" id="intro-moves"></p>
       <div id="intro-tip-wrap"></div>
       <div class="intro-obj-list" id="intro-objs"></div>
-      <div class="modal-btn-row">
-        <button class="modal-btn secondary" data-close="intro-scrim">Back</button>
-        <button class="modal-btn primary" id="intro-play">Play</button>
-      </div>
+      <div class="modal-btn-row" id="intro-buttons"></div>
     </div>
   </div>
 
@@ -3233,6 +3230,11 @@ function bossTickFn() {
    DAILY CHALLENGE — one seeded board for everyone, new every day
    ===================================================================== */
 function startDailyChallenge() {
+  if (P.session && P.session.mode === "journey" && P.session.level &&
+      P.session.level.isDaily && P.session.savedAt === new Date().toDateString()) {
+    restoreSnapshot(P.session);                      // today's paused daily
+    return;
+  }
   const now = new Date();
   const seed = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
   const rng = mulberry32(seed >>> 0);
@@ -3250,6 +3252,10 @@ function startDailyChallenge() {
 let gPlacements = 0, gNextStoneAt = 4;
 
 function startGauntlet() {
+  if (P.session && P.session.mode === "gauntlet") {  // paused run -> continue it
+    restoreSnapshot(P.session);
+    return;
+  }
   mode = "gauntlet";
   level = null;
   movesLeft = null;
@@ -3298,6 +3304,10 @@ function gauntletOver() {
 }
 
 function startRelax() {
+  if (P.session && P.session.mode === "relax") {     // paused board -> pick it back up
+    restoreSnapshot(P.session);
+    return;
+  }
   mode = "relax";
   level = null;
   movesLeft = null;
@@ -3362,11 +3372,54 @@ function showLevelIntro(n) {
     list.appendChild(el);
   }
 
-  document.getElementById("intro-play").onclick = () => {
-    document.getElementById("intro-scrim").classList.remove("open");
-    startLevel(n);
-  };
-  document.getElementById("intro-scrim").classList.add("open");
+  /* If THIS level has a paused attempt, entering via the map must offer
+     to RESUME it — not silently rebuild the level and wipe the snapshot
+     (that was exactly the "map resets my level" bug). */
+  const paused = P.session && P.session.mode === "journey" && P.session.level &&
+                 !P.session.level.isDaily && P.session.level.id === n;
+  if (paused && P.session.movesLeft !== null && P.session.movesLeft !== undefined) {
+    document.getElementById("intro-moves").textContent =
+      "In progress \u00b7 " + P.session.movesLeft + " moves left";
+  }
+
+  const scrim = document.getElementById("intro-scrim");
+  const btns = document.getElementById("intro-buttons");
+  btns.innerHTML = "";
+  const back = document.createElement("button");
+  back.className = "modal-btn secondary";
+  back.textContent = "Back";
+  back.onclick = () => scrim.classList.remove("open");
+  btns.appendChild(back);
+  if (paused) {
+    const restart = document.createElement("button");
+    restart.className = "modal-btn secondary";
+    restart.textContent = "Restart";
+    restart.onclick = () => {
+      P.session = null;                  // deliberate reset — discard the attempt
+      scrim.classList.remove("open");
+      startLevel(n);
+    };
+    const resume = document.createElement("button");
+    resume.className = "modal-btn primary";
+    resume.id = "intro-play";
+    resume.textContent = "Resume";
+    resume.onclick = () => {
+      scrim.classList.remove("open");
+      restoreSnapshot(P.session);
+    };
+    btns.append(restart, resume);
+  } else {
+    const play = document.createElement("button");
+    play.className = "modal-btn primary";
+    play.id = "intro-play";
+    play.textContent = "Play";
+    play.onclick = () => {
+      scrim.classList.remove("open");
+      startLevel(n);
+    };
+    btns.appendChild(play);
+  }
+  scrim.classList.add("open");
 }
 
 /* ---- level end ------------------------------------------------------- */
