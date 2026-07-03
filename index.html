@@ -4,7 +4,7 @@
   Its job is to answer:
     1. Does placing pieces feel good? (drag + snap)
     2. Does a board objective create a "hmm, let me think" moment?
-    3. Does the coin / streak / shop loop feel rewarding.
+    3. Does the coin / streak / shop loop feel rewarding?
 
   What's IN:  8x8 grid · three-piece tray · drag-and-drop · row/column
               clears · relax mode · one objective · coins · STREAK
@@ -42,8 +42,8 @@
 <style>
   /* ---- THEME ------------------------------------------------------ */
   :root {
-    --bg:        #1c1714;   /* warm near-black — calmer than Block Blast's pure black */
-    --bg-2:      #241d18;
+    --bg:        #0f172a;   /* deep slate navy — premium base for the ambient orbs */
+    --bg-2:      #131c33;
     --panel:     #2a221d;
     --panel-hi:  #34291f;
     --cell:      #221b17;   /* empty cell well */
@@ -984,8 +984,93 @@
     100% { transform: translateY(300px) rotate(560deg); opacity: 0; }
   }
 </style>
+<style>
+  /* =====================================================================
+     VISUAL OVERHAUL — ambient orbs + frosted glass UI
+     ===================================================================== */
+
+  /* ---- ANIMATED AMBIENT ORBS ------------------------------------------ */
+  /* Three blurred glow orbs drifting behind everything. z-index:-1 paints
+     them above the canvas background (the body bg propagates to the
+     canvas, which draws beneath negative z) but below all content.
+     Transform-only animations + will-change keep them on the compositor. */
+  :root { --orb1: #6366f1; --orb2: #8b5cf6; --orb3: #0ea5e9; }  /* Cosmic Indigo */
+  body.theme-cosmic  { --orb1: #6366f1; --orb2: #8b5cf6; --orb3: #0ea5e9; }
+  body.theme-sunset  { --orb1: #f97316; --orb2: #ec4899; --orb3: #f59e0b; }
+  body.theme-emerald { --orb1: #10b981; --orb2: #22d3ee; --orb3: #84cc16; }
+
+  .ambient {
+    position: fixed; inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .orb {
+    position: absolute;
+    width: 46vmax; height: 46vmax;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: .5;
+    will-change: transform;
+  }
+  .orb.o1 {
+    background: radial-gradient(circle at 35% 35%, var(--orb1), transparent 70%);
+    top: -12%; left: -14%;
+    animation: drift1 26s ease-in-out infinite alternate;
+  }
+  .orb.o2 {
+    background: radial-gradient(circle at 60% 40%, var(--orb2), transparent 70%);
+    bottom: -18%; right: -16%;
+    animation: drift2 32s ease-in-out infinite alternate;
+  }
+  .orb.o3 {
+    background: radial-gradient(circle at 50% 50%, var(--orb3), transparent 70%);
+    top: 34%; left: 22%;
+    width: 34vmax; height: 34vmax;
+    opacity: .35;
+    animation: drift3 40s ease-in-out infinite alternate;
+  }
+  @keyframes drift1 { to { transform: translate3d(14vw, 10vh, 0)  scale(1.15); } }
+  @keyframes drift2 { to { transform: translate3d(-12vw, -8vh, 0) scale(.9); } }
+  @keyframes drift3 { to { transform: translate3d(10vw, -12vh, 0) scale(1.2); } }
+  @media (prefers-reduced-motion: reduce) { .orb { animation: none; } }
+
+  /* ---- FROSTED GLASS PANELS --------------------------------------------- */
+  /* Major panels go translucent so the orbs shift behind them. Applied to
+     PANELS only (not per-cell) to keep backdrop-filter cost sane on phones. */
+  .objective, .tray, .hold, .board-wrap, .modal,
+  .iconbtn, .pu-btn, .debug-slider, .skin-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+  }
+  .iconbtn:hover { background: rgba(255, 255, 255, 0.11); }
+
+  /* main menu (saga map): translucent wash instead of opaque paint, and
+     zone sky bands ease off so the orbs glow through the whole journey */
+  .map-screen {
+    background: linear-gradient(180deg, rgba(15, 23, 42, .5), rgba(15, 23, 42, .72));
+  }
+  .map-zone { opacity: .82; }
+  /* The map wash is translucent so the ORBS glow through — but the game
+     screen sits behind it in the DOM and was ghosting through too. While
+     the map is open, hide everything except the map itself, modals, fx
+     layers, toasts and the ambient orbs. visibility (not display) keeps
+     layout intact so nothing reflows when the map closes. */
+  body.on-map > :not(.map-screen):not(.scrim):not(#drag-layer):not(#fx-layer):not(.ambient):not(.toast):not(.screen-flash) {
+    visibility: hidden;
+  }
+</style>
 </head>
 <body>
+
+  <!-- ambient orb backdrop — pure CSS, sits behind everything -->
+  <div class="ambient" aria-hidden="true">
+    <div class="orb o1"></div>
+    <div class="orb o2"></div>
+    <div class="orb o3"></div>
+  </div>
 
   <header>
     <div class="title" id="mode-title">Block Puzzle</div>
@@ -1172,7 +1257,7 @@ let TOUCH_LIFT = 3;
    floating piece on touch drags. The sideways analog of TOUCH_LIFT.
    Applied AFTER input amplification (below), so it's a fixed visual
    shift regardless of how far the thumb has moved. */
-let TOUCH_OFFSET_X = 0.25;
+let TOUCH_OFFSET_X = 0.75;
 
 /* TOUCH_MULT_X / TOUCH_MULT_Y — INPUT AMPLIFICATION (Block Blast style).
    The finger→piece mapping is NOT 1:1: motion is amplified relative to
@@ -1226,8 +1311,8 @@ const SKINS = {
       colors:["#FFD500","#0057B7"] },
   ],
   bg: [
-    { id:"bg_default", name:"Ember",   cost:0,
-      well:"#221b17", page:"#1c1714", glow1:"#2c2218", glow2:"#241c2a" },
+    { id:"bg_default", name:"Slate",   cost:0,
+      well:"#1a2338", page:"#0f172a", glow1:"#1e2a4a", glow2:"#252043" },
     { id:"bg_dusk",    name:"Dusk",    cost:600,
       well:"#1d1d2a", page:"#15151f", glow1:"#2a2440", glow2:"#3a2a3a" },
     { id:"bg_mint",    name:"Sea",     cost:1800,
@@ -1245,6 +1330,16 @@ const SKINS = {
     { id:"bg_ukraine", name:"Ukraine",      cost:0,
       well:"#1c2f52", page:"#0b4ea2", glow1:"#3d7fd4", glow2:"#ffd700",
       split:["#0b4ea2","#d4af1f"] },
+  ],
+  /* ambient orb themes — recolor the floating background glow.
+     `bodyClass` is toggled on <body>; the CSS vars do the rest. */
+  orbs: [
+    { id:"orbs_cosmic",  name:"Cosmic Indigo",  cost:0,   bodyClass:"theme-cosmic",
+      colors:["#6366f1","#8b5cf6","#0ea5e9"] },
+    { id:"orbs_sunset",  name:"Sunset Blaze",   cost:700, bodyClass:"theme-sunset",
+      colors:["#f97316","#ec4899","#f59e0b"] },
+    { id:"orbs_emerald", name:"Emerald Forest", cost:700, bodyClass:"theme-emerald",
+      colors:["#10b981","#22d3ee","#84cc16"] },
   ],
 };
 
@@ -1319,7 +1414,7 @@ const PIECES = [
    is the hook for future schema bumps — old saves never break.
    ===================================================================== */
 const SAVE_KEY = "blockpuzzle_save";
-const SAVE_VERSION = 2;
+const SAVE_VERSION = 3;
 const DAILY_BONUS = 50;
 
 function defaultSave() {
@@ -1328,8 +1423,8 @@ function defaultSave() {
     coins: 0,
     currentLevel: 1,                 // highest UNLOCKED (not yet beaten) level
     levelResults: {},                // "12": { stars: 3, highScore: 4200 }
-    owned: ["blocks_default", "bg_default"],
-    equipped: { blocks: "blocks_default", bg: "bg_default" },
+    owned: ["blocks_default", "bg_default", "orbs_cosmic"],
+    equipped: { blocks: "blocks_default", bg: "bg_default", orbs: "orbs_cosmic" },
     daily: { lastClaim: null, streak: 0 },
     items: { hammer: 0, bomb: 0, shuffle: 0, rotate: 0 },  // consumable inventory
     totals: { linesCleared: 0, levelsWon: 0, coinsEarned: 0 },
@@ -1345,6 +1440,13 @@ function migrateSave(s) {
     // v2: adds the mid-level session snapshot; existing fields unchanged
     s.session = s.session || null;
     s.version = 2;
+  }
+  if (s.version === 2) {
+    // v3: ambient orb themes — grant + equip the free default
+    s.owned = s.owned || [];
+    if (!s.owned.includes("orbs_cosmic")) s.owned.push("orbs_cosmic");
+    if (s.equipped) s.equipped.orbs = s.equipped.orbs || "orbs_cosmic";
+    s.version = 3;
   }
   return s;
 }
@@ -1406,7 +1508,7 @@ let idbTimer = null;
 function persist() {
   P.coins = coins;
   P.owned = [...ownedSkins];
-  P.equipped = { blocks: equipped.blocks, bg: equipped.bg };
+  P.equipped = { blocks: equipped.blocks, bg: equipped.bg, orbs: equipped.orbs };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(P)); } catch (e) { /* private mode etc. */ }
   clearTimeout(idbTimer);                // trailing throttle: persist storms -> one IDB write
   idbTimer = setTimeout(() => idbBackup(JSON.stringify(P)), 1500);
@@ -1616,7 +1718,7 @@ let onboardingLeft = ONBOARDING_LENGTH;     // starts on, counts down with place
 
 /* skins: which skin ids the player owns, and which are equipped */
 let ownedSkins = new Set(P.owned);
-let equipped = { blocks: P.equipped.blocks, bg: P.equipped.bg };
+let equipped = { blocks: P.equipped.blocks, bg: P.equipped.bg, orbs: P.equipped.orbs || "orbs_cosmic" };
 
 /* session stats — pure tuning data, shown in the Session Stats modal */
 let stats = {
@@ -1673,6 +1775,7 @@ function init() {
   const bs = findSkin(equipped.blocks);
   if (bs && bs.colors) COLORS = bs.colors.slice();
   applyBackgroundSkin();
+  applyOrbTheme(findSkin(equipped.orbs));
   bindUI();
   coinCount.textContent = coins;
   renderPowerupBar();
@@ -2782,7 +2885,16 @@ function onDragEnd() {
    game would look like a glitch). Background skins repaint instantly.
    ===================================================================== */
 function findSkin(id) {
-  return [...SKINS.blocks, ...SKINS.bg].find(s => s.id === id);
+  return [...SKINS.blocks, ...SKINS.bg, ...SKINS.orbs].find(s => s.id === id);
+}
+
+/* THEME HOOK — call with an orb skin to recolor the ambient background.
+   Swaps the theme-* class on <body>; CSS variables handle the visuals. */
+function applyOrbTheme(s) {
+  const keep = String(document.body.className || "")
+    .split(/\s+/).filter(c => c && !c.startsWith("theme-"));
+  if (s && s.bodyClass) keep.push(s.bodyClass);
+  document.body.className = keep.join(" ");
 }
 
 function applyBackgroundSkin() {
@@ -2837,10 +2949,11 @@ function buySkin(id) {
 function equipSkin(id) {
   const s = findSkin(id);
   if (!s || !ownedSkins.has(id)) return;
-  const kind = SKINS.blocks.includes(s) ? "blocks" : "bg";
+  const kind = SKINS.blocks.includes(s) ? "blocks" : SKINS.bg.includes(s) ? "bg" : "orbs";
   equipped[kind] = id;
   persist();
   if (kind === "bg") applyBackgroundSkin();
+  else if (kind === "orbs") applyOrbTheme(s);
   else applyBlockSkin();
   renderShop();             // refresh button states
 }
@@ -2849,8 +2962,9 @@ function equipSkin(id) {
 function renderShop() {
   shopBody.innerHTML = "";
   const sections = [
-    { label: "Block Colors", kind: "blocks", list: SKINS.blocks },
-    { label: "Backgrounds",  kind: "bg",     list: SKINS.bg },
+    { label: "Block Colors",        kind: "blocks", list: SKINS.blocks },
+    { label: "Backgrounds",         kind: "bg",     list: SKINS.bg },
+    { label: "Ambience (orb glow)", kind: "orbs",   list: SKINS.orbs },
   ];
   for (const sec of sections) {
     const lbl = document.createElement("div");
@@ -2871,7 +2985,7 @@ function renderShop() {
       // preview swatch
       const prev = document.createElement("div");
       prev.className = "skin-preview";
-      if (sec.kind === "blocks") {
+      if (sec.kind === "blocks" || sec.kind === "orbs") {
         skin.colors.forEach(col => {
           const sw = document.createElement("div");
           sw.className = "sw";
@@ -3219,6 +3333,7 @@ function startLevelSpec(spec) {
   updateHUD();
   render();
   document.getElementById("map-screen").classList.remove("open");
+  document.body.classList.remove("on-map");
   saveSnapshot();
 }
 
@@ -3293,6 +3408,7 @@ function startGauntlet() {
   updateHUD();
   render();
   document.getElementById("map-screen").classList.remove("open");
+  document.body.classList.remove("on-map");
   saveSnapshot();
   toast("Gauntlet: stones fall as you play \u2014 survive!");
 }
@@ -3346,6 +3462,7 @@ function startRelax() {
   updateHUD();
   render();
   document.getElementById("map-screen").classList.remove("open");
+  document.body.classList.remove("on-map");
   saveSnapshot();
 }
 
@@ -3577,6 +3694,7 @@ function openMap() {
   document.getElementById("map-daily").textContent =
     P.dailyRun.lastWin === new Date().toDateString() ? "Daily \u2713" : "Daily";
   document.getElementById("map-screen").classList.add("open");
+  document.body.classList.add("on-map");
   const cur = document.querySelector(".map-node.current");
   if (cur) cur.scrollIntoView({ block: "center" });
 }
@@ -4038,6 +4156,7 @@ function restoreSnapshot(snap) {
   updateHUD();
   render();
   document.getElementById("map-screen").classList.remove("open");
+  document.body.classList.remove("on-map");
 }
 
 /* boot-time prompt; returns true if it took over the screen */
