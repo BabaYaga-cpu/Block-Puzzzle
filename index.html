@@ -231,27 +231,11 @@
     animation: pulse 2.4s ease-in-out infinite;
     pointer-events: none;
   }
-  /* center pip — a solid dot with a dark contrast ring so the target still
-     reads clearly once a piece color fills the cell on top of it. */
-  .cell .target::before {
-    content: "";
-    position: absolute;
-    top: 50%; left: 50%;
-    width: 38%; height: 38%;
-    transform: translate(-50%, -50%);
-    border-radius: 50%;
-    background: var(--mint);
-    box-shadow: 0 0 0 2px rgba(0,0,0,.5), 0 0 9px 2px rgba(132,210,191,.8);
-  }
-  /* a target cell that's currently covered by a piece keeps a strong ring
-     AND a bright white pip so it stays obvious against any block color. */
+  /* a target cell that's currently covered by a piece keeps a strong white
+     ring so it stays visible against the block color on top of it. */
   .cell.filled .target {
     border-color: rgba(255,255,255,.95);
     box-shadow: 0 0 14px rgba(255,255,255,.55), inset 0 0 0 2px rgba(0,0,0,.3);
-  }
-  .cell.filled .target::before {
-    background: #fff;
-    box-shadow: 0 0 0 2px rgba(0,0,0,.55), 0 0 10px 2px rgba(255,255,255,.9);
   }
 
   /* ghost preview while dragging */
@@ -1851,6 +1835,7 @@ let armedPowerup = null;   // "hammer" | "bomb" while waiting for a board tap
 const SURGE_REQ = 10;
 let surgeCharge = 0;
 let rescueOffered = false; // near-miss continue: once per level attempt
+let continuesUsed = 0;     // paid continues taken this attempt (escalates cost)
 
 /* ONBOARDING DEAL — the first ONBOARDING_LENGTH placements after the
    board is fully empty draw from a restricted "easy" pool (small,
@@ -3461,6 +3446,7 @@ function startLevelSpec(spec) {
   levelDone = false;
   busy = false;
   rescueOffered = false;
+  continuesUsed = 0;
   disarmPowerup();
   levelScore = 0;
   streak = 0;
@@ -3778,7 +3764,7 @@ function levelFail(reason) {
     showRescueOffer(reason, ratio);
     return;
   }
-  showLevelEnd(false, { reason });
+  showLevelEnd(false, { reason, ratio });
 }
 
 function showLevelEnd(won, info) {
@@ -3824,11 +3810,16 @@ function showLevelEnd(won, info) {
       btns.append(mapBtn, next);
     }
   } else {
-    title.textContent = "Level failed";
+    const ratio = info.ratio || 0;
+    const cost = continueCost();
+    const canContinue = coins >= cost;
+    title.textContent = ratio >= 0.8 ? "So close!" : "Level failed";
     body.innerHTML = '<p class="end-sub" style="font-size:14px;">' + info.reason +
-      ". No coins lost — try again!</p>";
+      (canContinue
+        ? ". Spend " + cost + " coins to keep going, or retry free."
+        : ". No coins lost — try again!") + "</p>";
     const retry = document.createElement("button");
-    retry.className = "modal-btn primary";
+    retry.className = canContinue ? "modal-btn secondary" : "modal-btn primary";
     retry.textContent = "Retry";
     retry.onclick = () => {
       scrim.classList.remove("open");
@@ -3836,7 +3827,15 @@ function showLevelEnd(won, info) {
       if (level && level.isDaily) startLevelSpec(level);
       else startLevel(level.id);
     };
-    btns.append(mapBtn, retry);
+    if (canContinue) {
+      const cont = document.createElement("button");
+      cont.className = "modal-btn primary";
+      cont.textContent = "Continue \u00b7 " + cost + " coins";
+      cont.onclick = () => { scrim.classList.remove("open"); acceptRescue(); };
+      btns.append(mapBtn, retry, cont);
+    } else {
+      btns.append(mapBtn, retry);
+    }
   }
   scrim.classList.add("open");
 }
@@ -4238,17 +4237,24 @@ function showRescueOffer(reason, ratio) {
   const giveUp = document.createElement("button");
   giveUp.className = "modal-btn secondary";
   giveUp.textContent = "Give up";
-  giveUp.onclick = () => { scrim.classList.remove("open"); showLevelEnd(false, { reason }); };
+  giveUp.onclick = () => { scrim.classList.remove("open"); showLevelEnd(false, { reason, ratio }); };
   const cont = document.createElement("button");
   cont.className = "modal-btn primary";
-  cont.textContent = "Continue \u00b7 " + RESCUE_COST + " coins";
+  cont.textContent = "Continue \u00b7 " + continueCost() + " coins";
   cont.onclick = () => { scrim.classList.remove("open"); acceptRescue(); };
   btns.append(giveUp, cont);
   scrim.classList.add("open");
 }
 
+/* Cost of the next paid continue this attempt. Escalates so repeated
+   continues stay meaningful (60, 120, 180, ...). */
+function continueCost() { return RESCUE_COST * (continuesUsed + 1); }
+
 function acceptRescue() {
-  coins -= RESCUE_COST;
+  const cost = continueCost();
+  if (coins < cost) { toast("Not enough coins"); return; }
+  coins -= cost;
+  continuesUsed++;
   coinCount.textContent = coins;
   const mapCoins = document.getElementById("map-coin-count");
   if (mapCoins) mapCoins.textContent = coins;
@@ -4431,7 +4437,7 @@ function saveSnapshot() {
     mode, level, savedAt: new Date().toDateString(),
     grid, iceHP, gemCells, crateCells, targets, objectives,
     movesLeft, levelScore, streak, tray, held, objCleared,
-    onboardingLeft, gPlacements, gNextStoneAt, bossTick, rescueOffered,
+    onboardingLeft, gPlacements, gNextStoneAt, bossTick, rescueOffered, continuesUsed,
     surgeCharge, pieceId,
   };
   persist();
@@ -4457,6 +4463,7 @@ function restoreSnapshot(snap) {
   gNextStoneAt = snap.gNextStoneAt || 4;
   bossTick = snap.bossTick || 0;
   rescueOffered = !!snap.rescueOffered;
+  continuesUsed = snap.continuesUsed || 0;
   surgeCharge = snap.surgeCharge || 0;
   pieceId = Math.max(pieceId, snap.pieceId || 0);   // keep IDs unique
   levelDone = false;
