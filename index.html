@@ -534,6 +534,97 @@
   .skin-btn.buy:disabled { background: #4a4036; color: #7a6f60; cursor: not-allowed; }
   .skin-btn.equip   { background: var(--panel-hi); color: var(--text); border: 1px solid var(--line); }
   .skin-btn.equipped{ background: var(--mint); color: #0f261f; cursor: default; }
+
+  /* ===== SHOP 2.0 — layered carousel (scoped shx-, game palette) ===== */
+  .shx-head h2 { margin-right: auto; }
+  .shx-wallet { display:inline-flex; align-items:center; gap:6px; margin-right:6px;
+    padding:5px 11px; border-radius:999px; background:var(--panel); border:1px solid var(--line);
+    color:var(--gold); font-weight:700; font-size:13px; }
+  .shx-coin { width:12px; height:12px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #f4cf8e, var(--gold)); box-shadow:0 0 6px -1px var(--gold); }
+  .shx-coin-dot { display:inline-block; width:11px; height:11px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #f4cf8e, var(--gold)); vertical-align:-1px; }
+
+  #shop-body { display:flex; flex-direction:column; }
+
+  .shx-tabs { position:relative; display:grid; grid-template-columns:1fr 1fr; margin:6px 0 8px; padding:5px;
+    background:rgba(0,0,0,.28); border:1px solid var(--line); border-radius:14px; }
+  .shx-tab-ind { position:absolute; z-index:0; top:5px; left:5px; bottom:5px; width:calc(50% - 5px);
+    border-radius:10px; background:linear-gradient(135deg, var(--gold), var(--mint));
+    transition:transform .35s cubic-bezier(.34,1.3,.64,1); }
+  .shx-tab { position:relative; z-index:1; padding:10px 8px; font:inherit; font-weight:700; font-size:14px;
+    color:var(--text-dim); background:none; border:none; cursor:pointer; border-radius:10px; transition:color .25s; }
+  .shx-tab.active { color:#20170e; }
+
+  .shx-subtabs { position:relative; display:none; grid-template-columns:repeat(3,1fr); margin:0 0 8px; padding:4px;
+    background:rgba(0,0,0,.22); border:1px solid var(--line); border-radius:12px; }
+  .shx-subtabs.show { display:grid; animation:shxSubIn .3s cubic-bezier(.34,1.3,.64,1); }
+  @keyframes shxSubIn { from { opacity:0; transform:translateY(-6px); } }
+  .shx-sub-ind { position:absolute; z-index:0; top:4px; left:4px; bottom:4px; width:calc((100% - 8px)/3);
+    border-radius:9px; background:rgba(255,255,255,.09); border:1px solid var(--line);
+    transition:transform .3s cubic-bezier(.34,1.3,.64,1); }
+  .shx-subtab { position:relative; z-index:1; padding:8px 4px; font:inherit; font-weight:700; font-size:11.5px;
+    color:var(--text-dim); background:none; border:none; cursor:pointer; border-radius:9px; white-space:nowrap; transition:color .25s; }
+  .shx-subtab.active { color:var(--text); }
+
+  .shx-viewport { position:relative; height:clamp(240px, 46vh, 358px); }
+  .shx-viewport::before, .shx-viewport::after { content:""; position:absolute; top:0; bottom:0; width:26px; z-index:3; pointer-events:none; }
+  .shx-viewport::before { left:0;  background:linear-gradient(90deg, var(--panel), transparent); }
+  .shx-viewport::after  { right:0; background:linear-gradient(270deg, var(--panel), transparent); }
+  .shx-carousel { display:flex; flex-direction:row; gap:14px; height:100%; align-items:center; padding:6px 10%;
+    overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory; scroll-padding:0 10%; scroll-behavior:smooth;
+    -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+  .shx-carousel::-webkit-scrollbar { display:none; }
+  .shx-carousel.shx-drag { scroll-behavior:auto; cursor:grabbing; }
+
+  .shx-card { position:relative; scroll-snap-align:center; flex:0 0 80%; max-width:300px; height:min(100%, 340px);
+    display:flex; flex-direction:column; padding:18px 16px 14px;
+    background:linear-gradient(180deg, var(--panel-hi), var(--panel)); border:1px solid var(--line);
+    border-radius:16px; box-shadow:inset 0 1px 0 rgba(255,255,255,.06); }
+  .shx-animate .shx-card { animation:shxIn .4s cubic-bezier(.34,1.3,.64,1) both; }
+  @keyframes shxIn { from { opacity:0; transform:translateY(14px) scale(.96); } }
+  .shx-card.shx-eqcard { border-color:var(--mint); box-shadow:0 0 0 1px var(--mint) inset; }
+  .shx-card.shx-locked { opacity:.7; }
+  .shx-icon { width:78px; height:78px; margin:6px auto 12px; display:grid; place-items:center; font-size:38px;
+    border-radius:18px; background:radial-gradient(circle at 35% 28%, rgba(255,255,255,.14), rgba(255,255,255,.02));
+    border:1px solid var(--line); box-shadow:inset 0 2px 8px rgba(0,0,0,.4); }
+  .shx-card.shx-locked .shx-icon { filter:grayscale(.6) brightness(.85); }
+  .shx-prev-blocks { display:flex; flex-wrap:wrap; gap:5px; padding:12px; justify-content:center; align-content:center; }
+  .shx-prev-blocks span { width:18px; height:18px; border-radius:5px; box-shadow:inset 0 -2px 3px rgba(0,0,0,.35), inset 0 2px 2px rgba(255,255,255,.22); }
+  .shx-prev-orbs { display:flex; gap:9px; align-items:center; justify-content:center; }
+  .shx-prev-orbs span { width:20px; height:20px; border-radius:50%; }
+  .shx-prev-bg { position:relative; overflow:hidden; }
+  .shx-prev-bg span { position:absolute; width:38px; height:38px; border-radius:50%; filter:blur(7px); opacity:.85; }
+  .shx-prev-bg span:first-child { top:-8px; left:-8px; }
+  .shx-prev-bg span:last-child  { bottom:-8px; right:-8px; }
+
+  .shx-name { margin:0 0 5px; font-size:17px; font-weight:800; text-align:center; }
+  .shx-desc { margin:0; font-size:12.5px; line-height:1.45; color:var(--text-dim); text-align:center; }
+  .shx-grow { flex:1; }
+  .shx-badge { position:absolute; top:14px; right:14px; min-width:24px; padding:2px 6px; font-size:11px; font-weight:800;
+    text-align:center; color:#20170e; background:var(--gold); border-radius:999px; }
+
+  .shx-btn { width:100%; padding:12px; font:inherit; font-size:14px; font-weight:800; border:none; border-radius:12px;
+    cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:6px; transition:transform .12s ease, filter .2s; }
+  .shx-btn:active { transform:scale(.96); }
+  .shx-btn:disabled { cursor:default; }
+  .shx-btn.price { background:linear-gradient(135deg, var(--gold), #cf9350); color:#20170e; }
+  .shx-btn.price:disabled { opacity:.45; filter:grayscale(.3); }
+  .shx-btn.equip { background:linear-gradient(135deg, var(--mint), #5bb9d6); color:#06231e; }
+  .shx-btn.equipped { background:rgba(132,210,191,.16); color:var(--mint); border:1px solid var(--mint); }
+  .shx-btn.locked { background:rgba(255,255,255,.05); color:var(--text-dim); border:1px solid var(--line); }
+
+  .shx-arrow { position:absolute; z-index:4; top:50%; transform:translateY(-50%); width:38px; height:38px;
+    display:grid; place-items:center; font-size:22px; color:var(--text); background:rgba(15,10,8,.72);
+    border:1px solid var(--line); border-radius:50%; cursor:pointer; opacity:0; transition:opacity .25s; }
+  .shx-arrow.prev { left:2px; } .shx-arrow.next { right:2px; }
+  .shx-arrow:disabled { opacity:0 !important; pointer-events:none; }
+  @media (hover:hover) and (pointer:fine) { .shx-viewport:hover .shx-arrow { opacity:1; } }
+
+  .shx-dots { display:flex; justify-content:center; gap:6px; padding:10px 0 2px; }
+  .shx-dot { width:7px; height:7px; border-radius:999px; padding:0; background:rgba(255,255,255,.2);
+    border:none; cursor:pointer; transition:width .3s, background .3s; }
+  .shx-dot.active { width:20px; background:linear-gradient(90deg, var(--gold), var(--mint)); }
   .price-row { display: flex; align-items: center; gap: 5px; font-size: 12px; }
   .price-row .mini-dot {
     width: 11px; height: 11px; border-radius: 50%;
@@ -1311,11 +1402,11 @@
   <!-- ===== SHOP MODAL ===== -->
   <div class="scrim" id="shop-scrim">
     <div class="modal" id="shop-modal">
-      <div class="modal-head">
+      <div class="modal-head shx-head">
         <h2>Shop</h2>
+        <span class="shx-wallet"><span class="shx-coin"></span><span id="shop-coin">0</span></span>
         <button class="close" data-close="shop-scrim">&times;</button>
       </div>
-      <p class="modal-sub">Earn coins by clearing lines and finishing objectives. The first skin is cheap on purpose — see the loop work.</p>
       <div id="shop-body"></div>
     </div>
   </div>
@@ -3159,110 +3250,196 @@ function equipSkin(id) {
   renderShop();             // refresh button states
 }
 
-/* build the shop UI from the SKINS config */
-function renderShop() {
-  shopBody.innerHTML = "";
-  const sections = [
-    { label: "Block Colors",        kind: "blocks", list: SKINS.blocks },
-    { label: "Backgrounds",         kind: "bg",     list: SKINS.bg },
-    { label: "Ambience (orb glow)", kind: "orbs",   list: SKINS.orbs },
-  ];
-  for (const sec of sections) {
-    const lbl = document.createElement("div");
-    lbl.className = "shop-section-label";
-    lbl.textContent = sec.label;
-    shopBody.appendChild(lbl);
+/* =====================================================================
+   SHOP 2.0 — layered carousel. Presentation only: it reuses buySkin /
+   equipSkin / buyPowerup and the real economy (coins, ownedSkins,
+   equipped, P.items, P.currentLevel). Two tabs (Power-ups / Cosmetics);
+   Cosmetics splits into Blocks / Backgrounds / Ambience. Cards preview
+   each item's real colours. The shell is built once so the sliding tab
+   indicators and the carousel scroll position survive buy/equip renders.
+   ===================================================================== */
+let shopCat = "power";     // "power" | "cosmetic"
+let shopSub = "blocks";    // "blocks" | "bg" | "orbs"
+let shopBuilt = false;
+let shopViewKey = null;
 
-    const grid = document.createElement("div");
-    grid.className = "skin-grid";
+function shopItems() { return shopCat === "power" ? POWERUPS : SKINS[shopSub]; }
+function shopSubLabel() {
+  return shopSub === "blocks" ? "Recolours your pieces"
+       : shopSub === "bg"     ? "Recolours the board & backdrop"
+       :                        "Recolours the ambient glow";
+}
 
-    for (const skin of sec.list) {
-      const owned = ownedSkins.has(skin.id);
-      const isEquipped = equipped[sec.kind] === skin.id;
-
-      const card = document.createElement("div");
-      card.className = "skin-card" + (isEquipped ? " equipped" : "");
-
-      // preview swatch
-      const prev = document.createElement("div");
-      prev.className = "skin-preview";
-      if (sec.kind === "blocks" || sec.kind === "orbs") {
-        skin.colors.forEach(col => {
-          const sw = document.createElement("div");
-          sw.className = "sw";
-          sw.style.background = col;
-          prev.appendChild(sw);
-        });
-      } else {
-        prev.style.background = skin.split
-          ? `linear-gradient(180deg, ${skin.split[0]} 0 50%, ${skin.split[1]} 50% 100%)`
-          : skin.page;
-        prev.style.gridTemplateColumns = "repeat(3,1fr)";
-        // show the well color + a couple of glow chips
-        [skin.well, skin.glow1, skin.glow2].forEach(col => {
-          const sw = document.createElement("div");
-          sw.className = "sw";
-          sw.style.background = col;
-          prev.appendChild(sw);
-        });
-      }
-
-      const name = document.createElement("div");
-      name.className = "skin-name";
-      name.textContent = skin.name;
-
-      // action button: Buy / Equip / Equipped
-      const btn = document.createElement("button");
-      if (!owned && skin.unlockLevel && P.currentLevel < skin.unlockLevel) {
-        btn.className = "skin-btn levellock";
-        btn.textContent = "Reach level " + skin.unlockLevel;
-        btn.disabled = true;
-      } else if (!owned) {
-        btn.className = "skin-btn buy";
-        btn.innerHTML = skin.cost === 0
-          ? "Free"
-          : `<span class="price-row" style="justify-content:center;">` +
-            `<span class="mini-dot"></span>${skin.cost}</span>`;
-        btn.disabled = coins < skin.cost;
-        btn.addEventListener("click", () => buySkin(skin.id));
-      } else if (isEquipped) {
-        btn.className = "skin-btn equipped";
-        btn.textContent = "Equipped";
-      } else {
-        btn.className = "skin-btn equip";
-        btn.textContent = "Equip";
-        btn.addEventListener("click", () => equipSkin(skin.id));
-      }
-
-      card.append(prev, name, btn);
-      grid.appendChild(card);
-    }
-    shopBody.appendChild(grid);
+/* card artwork — real in-game colours for cosmetics, emoji for power-ups */
+function shopPreview(it) {
+  if (shopSub === "blocks" || shopSub === "orbs") {
+    return '<div class="shx-icon shx-prev-' + shopSub + '">' +
+      it.colors.map(c => '<span style="background:' + c +
+        (shopSub === "orbs" ? ";box-shadow:0 0 12px 2px " + c : "") + '"></span>').join("") + '</div>';
   }
+  if (it.split)
+    return '<div class="shx-icon shx-prev-bg" style="background:linear-gradient(180deg,' +
+      it.split[0] + ' 0 50%,' + it.split[1] + ' 50% 100%)"></div>';
+  return '<div class="shx-icon shx-prev-bg" style="background:' + it.page + '">' +
+    '<span style="background:' + it.glow1 + '"></span>' +
+    '<span style="background:' + it.glow2 + '"></span></div>';
+}
 
-  /* ---- power-ups (consumables) ---- */
-  const puLbl = document.createElement("div");
-  puLbl.className = "shop-section-label";
-  puLbl.textContent = "Power-ups";
-  shopBody.appendChild(puLbl);
-  const puGrid = document.createElement("div");
-  puGrid.className = "skin-grid";
-  for (const pu of POWERUPS) {
-    const card = document.createElement("div");
-    card.className = "skin-card";
+function shopCard(it) {
+  const card = document.createElement("article");
+  card.className = "shx-card";
+
+  if (shopCat === "power") {
+    const owned = P.items[it.id] || 0;
     card.innerHTML =
-      `<div class="skin-preview" style="grid-template-columns:1fr;align-content:center;justify-items:center;font-size:26px;">${pu.icon}</div>` +
-      `<div class="skin-name">${pu.name} <span style="color:var(--text-dim);font-weight:400;">\u00b7 owned ${P.items[pu.id] || 0}</span></div>` +
-      `<div style="font-size:11px;color:var(--text-dim);line-height:1.4;">${pu.desc}</div>`;
+      (owned > 0 ? '<span class="shx-badge">x' + owned + '</span>' : '') +
+      '<div class="shx-icon">' + it.icon + '</div>' +
+      '<h3 class="shx-name">' + it.name + '</h3>' +
+      '<p class="shx-desc">' + it.desc + '</p>' +
+      '<div class="shx-grow"></div>';
     const btn = document.createElement("button");
-    btn.className = "skin-btn buy";
-    btn.innerHTML = `<span class="price-row" style="justify-content:center;"><span class="mini-dot"></span>${pu.price}</span>`;
-    btn.disabled = coins < pu.price;
-    btn.addEventListener("click", () => buyPowerup(pu.id));
+    btn.className = "shx-btn price";
+    btn.innerHTML = '<span class="shx-coin-dot"></span> ' + it.price;
+    btn.disabled = coins < it.price;
+    btn.addEventListener("click", () => buyPowerup(it.id));
     card.appendChild(btn);
-    puGrid.appendChild(card);
+    return card;
   }
-  shopBody.appendChild(puGrid);
+
+  // cosmetic
+  const owned  = ownedSkins.has(it.id);
+  const isEq   = equipped[shopSub] === it.id;
+  const locked = !owned && it.unlockLevel && P.currentLevel < it.unlockLevel;
+  if (isEq)   card.classList.add("shx-eqcard");
+  if (locked) card.classList.add("shx-locked");
+  card.innerHTML =
+    shopPreview(it) +
+    '<h3 class="shx-name">' + it.name + '</h3>' +
+    '<p class="shx-desc">' + shopSubLabel() + '</p>' +
+    '<div class="shx-grow"></div>';
+  const btn = document.createElement("button");
+  if (locked) {
+    btn.className = "shx-btn locked"; btn.textContent = "🔒 Level " + it.unlockLevel; btn.disabled = true;
+  } else if (isEq) {
+    btn.className = "shx-btn equipped"; btn.textContent = "✓ Equipped"; btn.disabled = true;
+  } else if (owned) {
+    btn.className = "shx-btn equip"; btn.textContent = "Equip";
+    btn.addEventListener("click", () => equipSkin(it.id));
+  } else {
+    btn.className = "shx-btn price";
+    btn.innerHTML = it.cost === 0 ? "Free" : '<span class="shx-coin-dot"></span> ' + it.cost;
+    btn.disabled = coins < it.cost;
+    btn.addEventListener("click", () => buySkin(it.id));
+  }
+  card.appendChild(btn);
+  return card;
+}
+
+/* carousel scroll helpers */
+function shopCarEl() { return document.getElementById("shop-carousel"); }
+function shopCardStep() {
+  const car = shopCarEl(); const c = car && car.querySelector(".shx-card");
+  if (!c) return 1;
+  const gap = parseFloat(getComputedStyle(car).gap) || 0;
+  return c.getBoundingClientRect().width + gap;
+}
+function shopIndex() { const car = shopCarEl(); return car ? Math.round(car.scrollLeft / shopCardStep()) : 0; }
+function shopScrollTo(i) { const car = shopCarEl(); if (car) car.scrollTo({ left: i * shopCardStep(), behavior: "smooth" }); }
+function shopSnap() { shopScrollTo(shopIndex()); }
+function updateShopDots() {
+  const dots = document.getElementById("shx-dots"); if (!dots) return;
+  const idx = shopIndex();
+  [...dots.children].forEach((el, i) => el.classList.toggle("active", i === idx));
+  const prev = document.getElementById("shx-prev"), next = document.getElementById("shx-next");
+  const n = shopItems().length;
+  if (prev) prev.disabled = idx <= 0;
+  if (next) next.disabled = idx >= n - 1;
+}
+
+/* build the static shell once (keeps indicators + scroll across renders) */
+function buildShopShell() {
+  shopBody.innerHTML =
+    '<div class="shx-tabs">' +
+      '<span class="shx-tab-ind" id="shx-tab-ind"></span>' +
+      '<button class="shx-tab" data-cat="power">⚡ Power-ups</button>' +
+      '<button class="shx-tab" data-cat="cosmetic">✨ Cosmetics</button>' +
+    '</div>' +
+    '<div class="shx-subtabs" id="shx-subtabs">' +
+      '<span class="shx-sub-ind" id="shx-sub-ind"></span>' +
+      '<button class="shx-subtab" data-sub="blocks">🎨 Blocks</button>' +
+      '<button class="shx-subtab" data-sub="bg">🖼️ Backgrounds</button>' +
+      '<button class="shx-subtab" data-sub="orbs">🌌 Ambience</button>' +
+    '</div>' +
+    '<div class="shx-viewport">' +
+      '<button class="shx-arrow prev" id="shx-prev" aria-label="Previous">‹</button>' +
+      '<button class="shx-arrow next" id="shx-next" aria-label="Next">›</button>' +
+      '<div class="shx-carousel" id="shop-carousel" tabindex="0"></div>' +
+    '</div>' +
+    '<div class="shx-dots" id="shx-dots"></div>';
+
+  shopBody.querySelectorAll(".shx-tab").forEach(t =>
+    t.addEventListener("click", () => { if (shopCat !== t.dataset.cat) { shopCat = t.dataset.cat; renderShop(); } }));
+  shopBody.querySelectorAll(".shx-subtab").forEach(t =>
+    t.addEventListener("click", () => { if (shopSub !== t.dataset.sub) { shopSub = t.dataset.sub; renderShop(); } }));
+
+  const car = shopCarEl();
+  document.getElementById("shx-prev").addEventListener("click", () => shopScrollTo(Math.max(0, shopIndex() - 1)));
+  document.getElementById("shx-next").addEventListener("click", () => shopScrollTo(shopIndex() + 1));
+  let raf = null;
+  car.addEventListener("scroll", () => { if (raf) return; raf = requestAnimationFrame(() => { raf = null; updateShopDots(); }); });
+  car.addEventListener("keydown", e => {
+    if (e.key === "ArrowRight") { e.preventDefault(); shopScrollTo(shopIndex() + 1); }
+    if (e.key === "ArrowLeft")  { e.preventDefault(); shopScrollTo(Math.max(0, shopIndex() - 1)); }
+  });
+  // mouse drag-to-scroll (touch uses native snap)
+  let d = null;
+  car.addEventListener("pointerdown", e => { if (e.pointerType !== "mouse") return; d = { x: e.clientX, l: car.scrollLeft, moved: false }; car.classList.add("shx-drag"); });
+  window.addEventListener("pointermove", e => { if (!d) return; const dx = e.clientX - d.x; if (Math.abs(dx) > 3) d.moved = true; car.scrollLeft = d.l - dx; });
+  window.addEventListener("pointerup", () => { if (!d) return; car.classList.remove("shx-drag"); shopSnap(); d = null; });
+  car.addEventListener("click", e => { if (d && d.moved) { e.stopPropagation(); e.preventDefault(); } }, true);
+
+  shopBuilt = true;
+}
+
+function renderShopCards() {
+  const car = shopCarEl();
+  const viewKey = shopCat + "/" + shopSub;
+  const sameView = viewKey === shopViewKey;
+  const prevScroll = sameView ? car.scrollLeft : 0;
+  car.classList.toggle("shx-animate", !sameView);
+  car.innerHTML = "";
+  const items = shopItems();
+  items.forEach(it => car.appendChild(shopCard(it)));
+  const dots = document.getElementById("shx-dots");
+  dots.innerHTML = "";
+  items.forEach((_, i) => {
+    const dot = document.createElement("button");
+    dot.className = "shx-dot" + (i === 0 ? " active" : "");
+    dot.setAttribute("aria-label", "Go to item " + (i + 1));
+    dot.addEventListener("click", () => shopScrollTo(i));
+    dots.appendChild(dot);
+  });
+  shopViewKey = viewKey;
+  car.scrollLeft = prevScroll;
+  updateShopDots();
+}
+
+/* entry point — same name/callers as before (buySkin/equip/buyPowerup call it) */
+function renderShop() {
+  if (!shopBuilt) buildShopShell();
+  const coinEl = document.getElementById("shop-coin");
+  if (coinEl) coinEl.textContent = coins;
+
+  shopBody.querySelectorAll(".shx-tab").forEach(t => t.classList.toggle("active", t.dataset.cat === shopCat));
+  document.getElementById("shx-tab-ind").style.transform = shopCat === "cosmetic" ? "translateX(100%)" : "translateX(0)";
+
+  const subs = document.getElementById("shx-subtabs");
+  subs.classList.toggle("show", shopCat === "cosmetic");
+  shopBody.querySelectorAll(".shx-subtab").forEach(t => t.classList.toggle("active", t.dataset.sub === shopSub));
+  const subIdx = shopSub === "bg" ? 1 : shopSub === "orbs" ? 2 : 0;
+  document.getElementById("shx-sub-ind").style.transform = "translateX(" + (subIdx * 100) + "%)";
+
+  renderShopCards();
 }
 
 /* =====================================================================
