@@ -40,6 +40,23 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  /* =====================================================================
+     STYLE INDEX  (search a title to jump). Split across three <style>
+     blocks — base UI, then progression/journey UI, then the visual layer.
+
+       block 1 (base):     THEME  ·  MOBILE TOUCH BEHAVIOR  ·  OBJECTIVE  ·
+                           BOARD  ·  TRAY + HOLD  ·  TOAST  ·  STREAK BADGE  ·
+                           TOP BAR BUTTON  ·  MODAL  ·  SHOP GRID  ·
+                           SESSION SUMMARY  ·  DEBUG SLIDER  ·  SAFE AREA
+       block 2 (journey):  MOVES PILL  ·  MULTI-OBJECTIVE ROWS  ·
+                           OBSTACLES: ICE + STONE  ·  SAGA MAP  ·
+                           LEVEL INTRO / END MODALS  ·  ROTATE CHOOSER  ·
+                           SHOP: LEVEL-LOCKED ITEMS  ·  POWER-UP BAR  ·
+                           LINE-CLEAR PREVIEW  ·  CLEAR EXPLOSION  ·
+                           OVERDRIVE SURGE METER  ·  WIN CELEBRATION
+       block 3 (visual):   ANIMATED AMBIENT ORBS  ·  FROSTED GLASS PANELS
+     ===================================================================== */
+
   /* ---- THEME ------------------------------------------------------ */
   :root {
     --bg:        #0f172a;   /* deep slate navy — premium base for the ambient orbs */
@@ -1340,6 +1357,48 @@
 "use strict";
 
 /* =====================================================================
+   SECTION INDEX  (search a title to jump to it — no line numbers, so it
+   never goes stale). Reading order top-to-bottom mirrors the data flow:
+   config -> data -> state -> setup -> gameplay -> render -> lifecycle.
+
+     CONFIG                 the knobs worth touching first
+     SKINS                  cosmetic catalog (block/bg/orb themes)
+     PERSISTENCE            one versioned save object in localStorage
+     LEVEL MANAGER          data-driven, procedural, deterministic levels
+     STATE                  live game variables
+     DOM REFS               cached element handles
+     SETUP                  boot wiring (bindUI)
+     OBJECTIVE              glowing target-tile spawning
+     TRAY                   piece dealing rhythm
+     PLACEMENT RULES        can-place / place / clear-lines core
+     COINS / TOAST          economy payouts + transient messages
+     RENDER                 paint grid + tray from the model
+     DRAG & DROP            pointer input (mouse + touch), ghost, snap
+     SKINS  — apply         equip / buy / equip routing
+     SESSION SUMMARY        tuning readout modal
+     HUD                    mode title, moves pill, objective rows
+     JOURNEY MODE           board construction + level lifecycle
+     PRESSURE STONES        boss + gauntlet stone drops
+     DAILY CHALLENGE        one seeded board per day
+     GAUNTLET               endless survival
+     SAGA MAP               winding level map
+     POWER-UPS              arm / target / apply
+     ROTATE POWER-UP        orientation chooser
+     NEAR-MISS RESCUE       paid "continue" offers
+     OVERDRIVE SURGE        meter HUD
+     CLEAR EFFECTS          line-clear juice entry point
+     CLEAR EXPLOSION        shard particles
+     WIN CELEBRATION        coin ticker + confetti
+     MID-LEVEL RESUME       live-game snapshot save/restore
+     CHEST REWARD POPUP     zone-chest reward modal
+     DAILY BONUS            login reward
+     GO                     boot entry point
+
+   Styles live in three <style> blocks in <head>; see "STYLE INDEX" there.
+   ===================================================================== */
+
+
+/* =====================================================================
    CONFIG  — the knobs worth touching first
    ===================================================================== */
 const GRID_SIZE   = 8;
@@ -1382,7 +1441,7 @@ let TOUCH_LIFT = 3;
    floating piece on touch drags. The sideways analog of TOUCH_LIFT.
    Applied AFTER input amplification (below), so it's a fixed visual
    shift regardless of how far the thumb has moved. */
-let TOUCH_OFFSET_X = 0.25;
+let TOUCH_OFFSET_X = 0.75;
 
 /* TOUCH_MULT_X / TOUCH_MULT_Y — INPUT AMPLIFICATION (Block Blast style).
    The finger→piece mapping is NOT 1:1: motion is amplified relative to
