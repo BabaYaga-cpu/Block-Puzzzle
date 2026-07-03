@@ -917,12 +917,17 @@
   /* While dragging: every cell of a row/column that WOULD complete if the
      piece dropped here lights up. Reads as "drop it — this clears". */
   .cell.will-clear {
-    filter: brightness(1.5) saturate(1.15);
+    filter: brightness(1.9) saturate(1.3);
     box-shadow:
-      0 0 14px rgba(255,255,255,.35),
-      inset 0 0 0 2px rgba(255,255,255,.6);
-    transition: filter .08s ease;
+      0 0 18px 4px rgba(255, 228, 150, .65),
+      inset 0 0 0 3px rgba(255, 255, 255, .85);
+    transform: scale(1.06);
     z-index: 1;
+    animation: willclearpulse .8s ease-in-out infinite;
+  }
+  @keyframes willclearpulse {
+    0%, 100% { filter: brightness(1.7) saturate(1.25); }
+    50%      { filter: brightness(2.3) saturate(1.45); }
   }
 
   /* ---- CLEAR EXPLOSION ---------------------------------------------------- */
@@ -953,6 +958,49 @@
     0%   { transform: translate(0, 0) rotate(0) scale(1); opacity: 1; }
     100% { transform: translate(var(--dx, 0px), var(--dy, 0px)) rotate(var(--rot, 360deg)) scale(.3); opacity: 0; }
   }
+  /* ---- OVERDRIVE SURGE METER ------------------------------------------ */
+  .surge-bar {
+    width: 100%; max-width: 460px;
+    height: 22px;
+    position: relative;
+    border-radius: 11px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.09);
+    overflow: hidden;
+    flex: none;
+  }
+  .surge-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 0%;
+    background: linear-gradient(90deg, #f06d4e, var(--gold));
+    transition: width .35s ease;
+  }
+  .surge-label {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; letter-spacing: .12em;
+    color: var(--text);
+    text-shadow: 0 1px 2px rgba(0,0,0,.6);
+    pointer-events: none;
+  }
+  .surge-bar.ready {
+    border-color: var(--gold);
+    animation: surgereadypulse 1.1s ease-in-out infinite;
+  }
+  @keyframes surgereadypulse {
+    0%, 100% { box-shadow: 0 0 6px rgba(224,169,96,.4); }
+    50%      { box-shadow: 0 0 18px rgba(224,169,96,.85); }
+  }
+  /* with a full meter, every piece in hand crackles gold */
+  body.surge-ready .piece .piece-cell.on,
+  body.surge-ready .floating .fc.on {
+    animation: surgepiece 1s ease-in-out infinite;
+  }
+  @keyframes surgepiece {
+    0%, 100% { filter: brightness(1.15); }
+    50%      { filter: brightness(1.7) drop-shadow(0 0 6px rgba(255,215,0,.8)); }
+  }
+
   /* CLEAR SPLASH — center-board headline for multi-line clears.
      Bursts in with a bounce, holds, then floats up and fades.
      transform/opacity only; absolutely positioned so it never joins
@@ -1116,6 +1164,11 @@
 
   <div class="objective" id="objective-panel">
     <div id="obj-rows"></div>
+  </div>
+
+  <div class="surge-bar" id="surge-bar">
+    <div class="surge-fill" id="surge-fill"></div>
+    <span class="surge-label" id="surge-label">SURGE 0 / 10</span>
   </div>
 
   <div class="board-wrap">
@@ -1720,6 +1773,13 @@ let iceHP = {};         // "r,c" -> clears remaining (2 = intact, 1 = cracked)
 let crateCells = {};    // "r,c" -> true for wooden crates (1-hit objective blocks)
 let gemCells = {};      // "r,c" -> gem color, for pre-placed gem blocks
 let armedPowerup = null;   // "hammer" | "bomb" while waiting for a board tap
+
+/* OVERDRIVE SURGE — the signature mechanic. Genuine line clears charge
+   the meter (double while the streak multiplier is >= x2). At full
+   charge the NEXT placed piece detonates every row + column it touches,
+   fullness be damned. Surge-cleared lines do NOT recharge the meter. */
+const SURGE_REQ = 10;
+let surgeCharge = 0;
 let rescueOffered = false; // near-miss continue: once per level attempt
 
 /* ONBOARDING DEAL — the first ONBOARDING_LENGTH placements after the
@@ -1804,6 +1864,7 @@ function init() {
   bindUI();
   coinCount.textContent = coins;
   renderPowerupBar();
+  updateSurgeHUD();
   render();
   if (!maybeOfferResume()) openMap();   // resume prompt, else the saga map
   claimDailyBonus();
@@ -2095,6 +2156,21 @@ function placePiece(piece, originR, originC) {
     if (full) fullCols.push(c);
   }
 
+  // OVERDRIVE: full meter -> this placement detonates every row and
+  // column the piece touches. The detonated lines flow through the
+  // normal clearLines path, so coins, score, streak growth, objectives
+  // (targets/gems/ice/crates) and the splash tiers all just work.
+  let surged = false;
+  if (surgeCharge >= SURGE_REQ) {
+    surged = true;
+    surgeCharge = 0;
+    for (const [r] of placed) if (!fullRows.includes(r)) fullRows.push(r);
+    for (const [, c] of placed) if (!fullCols.includes(c)) fullCols.push(c);
+    updateSurgeHUD();
+    screenFlash();
+    toast("\u26a1 OVERDRIVE!");
+  }
+
   // --- PLACEMENT COINS -------------------------------------------------
   // A placement that clears a line is "good" by definition — its payout
   // comes from the clear, handled below, so we don't also judge tidiness.
@@ -2121,7 +2197,7 @@ function placePiece(piece, originR, originC) {
     // this placement cleared something -> streak grows
     streak = Math.min(streak + 1, STREAK_MAX);
     stats.bestStreak = Math.max(stats.bestStreak, streak);
-    clearLines(fullRows, fullCols, placed);
+    clearLines(fullRows, fullCols, placed, surged);
   } else {
     // placement cleared nothing -> streak breaks
     if (streak > 0) toast("Streak broken");
@@ -2150,7 +2226,7 @@ function updateStreakBadge() {
 }
 
 /* animate + remove cleared lines, then score */
-function clearLines(rows, cols, originCells) {
+function clearLines(rows, cols, originCells, surgedClear) {
   busy = true;
   const toClear = new Set();
   rows.forEach(r => { for (let c = 0; c < GRID_SIZE; c++) toClear.add(r + "," + c); });
@@ -2166,6 +2242,14 @@ function clearLines(rows, cols, originCells) {
   const lines = rows.length + cols.length;
   stats.linesCleared += lines;
   P.totals.linesCleared += lines;
+
+  // SURGE CHARGE — only genuine clears feed the meter (a hot streak
+  // feeds it double); surge detonations never recharge themselves
+  if (!surgedClear) {
+    const gain = streakMult() >= 2 ? lines * 2 : lines;
+    surgeCharge = Math.min(SURGE_REQ, surgeCharge + gain);
+    updateSurgeHUD();
+  }
 
   // streak multiplier applies to clear-based coins (not flat placement coins)
   const mult = streakMult();
@@ -3327,6 +3411,8 @@ function startLevelSpec(spec) {
   render();
   document.getElementById("map-screen").classList.remove("open");
   document.body.classList.remove("on-map");
+  surgeCharge = 0;
+  updateSurgeHUD();
   saveSnapshot();
 }
 
@@ -3402,6 +3488,8 @@ function startGauntlet() {
   render();
   document.getElementById("map-screen").classList.remove("open");
   document.body.classList.remove("on-map");
+  surgeCharge = 0;
+  updateSurgeHUD();
   saveSnapshot();
   toast("Gauntlet: stones fall as you play \u2014 survive!");
 }
@@ -3456,6 +3544,8 @@ function startRelax() {
   render();
   document.getElementById("map-screen").classList.remove("open");
   document.body.classList.remove("on-map");
+  surgeCharge = 0;
+  updateSurgeHUD();
   saveSnapshot();
 }
 
@@ -4031,6 +4121,23 @@ function acceptRescue() {
 }
 
 /* =====================================================================
+   OVERDRIVE SURGE — meter HUD
+   ===================================================================== */
+function updateSurgeHUD() {
+  const bar = document.getElementById("surge-bar");
+  if (!bar) return;
+  const fill = document.getElementById("surge-fill");
+  const label = document.getElementById("surge-label");
+  const ready = surgeCharge >= SURGE_REQ;
+  if (fill) fill.style.width = Math.round(surgeCharge / SURGE_REQ * 100) + "%";
+  bar.classList.toggle("ready", ready);
+  document.body.classList.toggle("surge-ready", ready);
+  if (label) label.textContent = ready
+    ? "\u26a1 OVERDRIVE READY \u2014 next piece detonates its rows & columns"
+    : "SURGE " + surgeCharge + " / " + SURGE_REQ;
+}
+
+/* =====================================================================
    CLEAR EFFECTS — single entry point for all line-clear juice.
    triggerClearEffects(lineCount, cellKeys, originCells):
      · per-cell pop-out (scale + spin + bloom), staggered outward from
@@ -4178,7 +4285,7 @@ function saveSnapshot() {
     grid, iceHP, gemCells, crateCells, targets, objectives,
     movesLeft, levelScore, streak, tray, held, objCleared,
     onboardingLeft, gPlacements, gNextStoneAt, bossTick, rescueOffered,
-    pieceId,
+    surgeCharge, pieceId,
   };
   persist();
 }
@@ -4203,11 +4310,13 @@ function restoreSnapshot(snap) {
   gNextStoneAt = snap.gNextStoneAt || 4;
   bossTick = snap.bossTick || 0;
   rescueOffered = !!snap.rescueOffered;
+  surgeCharge = snap.surgeCharge || 0;
   pieceId = Math.max(pieceId, snap.pieceId || 0);   // keep IDs unique
   levelDone = false;
   busy = false;
   disarmPowerup();
   updateStreakBadge();
+  updateSurgeHUD();
   updateHUD();
   render();
   document.getElementById("map-screen").classList.remove("open");
