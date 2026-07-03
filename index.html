@@ -1314,7 +1314,7 @@ const PIECES = [
    is the hook for future schema bumps — old saves never break.
    ===================================================================== */
 const SAVE_KEY = "blockpuzzle_save";
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 2;
 const DAILY_BONUS = 50;
 
 function defaultSave() {
@@ -1331,11 +1331,16 @@ function defaultSave() {
     chests: {},                          // zone index -> chest claimed
     gauntletBest: 0,                     // best endless-run score
     dailyRun: { lastWin: null, bestScore: 0 },
+    session: null,                       // mid-level snapshot (resume on relaunch)
   };
 }
 function migrateSave(s) {
   if (!s.version) s.version = 1;
-  // future: if (s.version === 1) { ...transform...; s.version = 2; }
+  if (s.version === 1) {
+    // v2: adds the mid-level session snapshot; existing fields unchanged
+    s.session = s.session || null;
+    s.version = 2;
+  }
   return s;
 }
 function loadSave() {
@@ -1357,12 +1362,49 @@ function loadSave() {
   }
 }
 const P = loadSave();
+idbRestoreIfNeeded();   // async: restores from the IDB backup if primary is gone
 
+/* IndexedDB BACKUP MIRROR — localStorage stays the primary (synchronous,
+   simple); every persist also lands in IndexedDB shortly after, throttled.
+   If localStorage ever comes back empty (iOS eviction, cleared site data
+   that spared IDB, etc.) the backup is restored and the page reloads once. */
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open("blockpuzzle-backup", 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore("kv");
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+function idbBackup(json) {
+  if (typeof indexedDB === "undefined") return;
+  idbOpen().then(db => {
+    db.transaction("kv", "readwrite").objectStore("kv").put(json, SAVE_KEY);
+  }).catch(() => {});
+}
+function idbRestoreIfNeeded() {
+  if (typeof indexedDB === "undefined") return;
+  try { if (localStorage.getItem(SAVE_KEY)) return; } catch (e) { return; }
+  idbOpen().then(db => {
+    const rq = db.transaction("kv").objectStore("kv").get(SAVE_KEY);
+    rq.onsuccess = () => {
+      if (!rq.result) return;
+      try {
+        localStorage.setItem(SAVE_KEY, rq.result);
+        location.reload();               // boot again with the restored save
+      } catch (e) { /* storage unwritable — nothing we can do */ }
+    };
+  }).catch(() => {});
+}
+
+let idbTimer = null;
 function persist() {
   P.coins = coins;
   P.owned = [...ownedSkins];
   P.equipped = { blocks: equipped.blocks, bg: equipped.bg };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(P)); } catch (e) { /* private mode etc. */ }
+  clearTimeout(idbTimer);                // trailing throttle: persist storms -> one IDB write
+  idbTimer = setTimeout(() => idbBackup(JSON.stringify(P)), 1500);
 }
 
 /* =====================================================================
@@ -1630,7 +1672,7 @@ function init() {
   coinCount.textContent = coins;
   renderPowerupBar();
   render();
-  openMap();               // the saga map is the home screen
+  if (!maybeOfferResume()) openMap();   // resume prompt, else the saga map
   claimDailyBonus();
 }
 
@@ -2187,6 +2229,7 @@ function afterTurn() {
     dealTray();
   }
   render();
+  saveSnapshot();          // every resolved turn is a resume point
 }
 
 /* =====================================================================
@@ -2360,6 +2403,7 @@ function startDrag(e, piece, pieceEl) {
     piece.id = ++pieceId;
     render();
     toast("Rotated");
+    saveSnapshot();
     return;
   }
 
@@ -3159,6 +3203,7 @@ function startLevelSpec(spec) {
   updateHUD();
   render();
   document.getElementById("map-screen").classList.remove("open");
+  saveSnapshot();
 }
 
 /* =====================================================================
@@ -3223,11 +3268,13 @@ function startGauntlet() {
   updateHUD();
   render();
   document.getElementById("map-screen").classList.remove("open");
+  saveSnapshot();
   toast("Gauntlet: stones fall as you play \u2014 survive!");
 }
 
 function gauntletOver() {
   busy = true;
+  P.session = null;
   const prevBest = P.gauntletBest || 0;
   P.gauntletBest = Math.max(prevBest, levelScore);
   persist();
@@ -3270,6 +3317,7 @@ function startRelax() {
   updateHUD();
   render();
   document.getElementById("map-screen").classList.remove("open");
+  saveSnapshot();
 }
 
 /* ---- level intro (pre-play modal: objectives, moves, tutorial tip) --- */
@@ -3324,6 +3372,7 @@ function showLevelIntro(n) {
 /* ---- level end ------------------------------------------------------- */
 function levelWin() {
   levelDone = true;
+  P.session = null;        // attempt finished — nothing to resume
   busy = true;                                     // freeze input under the modal
   if (movesLeft !== null) levelScore += movesLeft * 40;   // efficiency bonus
 
@@ -3364,6 +3413,8 @@ function levelWin() {
 function levelFail(reason) {
   levelDone = true;
   busy = true;
+  P.session = null;        // attempt over (acceptRescue re-snapshots if taken)
+  persist();
   /* NEAR-MISS RESCUE — if the player is >=80% done overall and can afford
      it, offer +5 moves (and a fresh tray if they were stuck) instead of a
      hard fail. Offered once per attempt; coins only, guilt-free. */
@@ -3732,6 +3783,7 @@ function destroyCells(cells) {
     busy = false;
     render();
     renderPowerupBar();
+    saveSnapshot();
     if (mode === "journey" && !levelDone && objectives.every(o => o.progress >= o.target)) {
       levelWin();
     }
@@ -3792,6 +3844,7 @@ function acceptRescue() {
   }
   updateHUD();
   render();
+  saveSnapshot();          // the rescued attempt is resumable again
 }
 
 /* =====================================================================
@@ -3861,6 +3914,99 @@ function confettiBurst(container) {
     container.appendChild(p);
     setTimeout(() => p.remove(), 2800);
   }
+}
+
+/* =====================================================================
+   MID-LEVEL RESUME — snapshot the live game after every resolved turn.
+   ---------------------------------------------------------------------
+   Close the app mid-level and the attempt survives: on the next boot a
+   "Welcome back" prompt offers Resume/Discard. Snapshots are cleared the
+   moment an attempt ends (win/fail/gauntlet-over), and a stale DAILY
+   snapshot (from a previous date) is discarded silently — yesterday's
+   daily board must not leak into today.
+   ===================================================================== */
+function saveSnapshot() {
+  if (levelDone) return;
+  if (mode !== "journey" && mode !== "relax" && mode !== "gauntlet") return;
+  P.session = {
+    mode, level, savedAt: new Date().toDateString(),
+    grid, iceHP, gemCells, crateCells, targets, objectives,
+    movesLeft, levelScore, streak, tray, held, objCleared,
+    onboardingLeft, gPlacements, gNextStoneAt, bossTick, rescueOffered,
+    pieceId,
+  };
+  persist();
+}
+
+function restoreSnapshot(snap) {
+  mode = snap.mode;
+  level = snap.level || null;
+  grid = snap.grid;
+  iceHP = snap.iceHP || {};
+  gemCells = snap.gemCells || {};
+  crateCells = snap.crateCells || {};
+  targets = snap.targets || [];
+  objectives = snap.objectives || [];
+  movesLeft = snap.movesLeft === undefined ? null : snap.movesLeft;
+  levelScore = snap.levelScore || 0;
+  streak = snap.streak || 0;
+  tray = snap.tray || [null, null, null];
+  held = snap.held || null;
+  objCleared = snap.objCleared || 0;
+  onboardingLeft = snap.onboardingLeft === undefined ? ONBOARDING_LENGTH : snap.onboardingLeft;
+  gPlacements = snap.gPlacements || 0;
+  gNextStoneAt = snap.gNextStoneAt || 4;
+  bossTick = snap.bossTick || 0;
+  rescueOffered = !!snap.rescueOffered;
+  pieceId = Math.max(pieceId, snap.pieceId || 0);   // keep IDs unique
+  levelDone = false;
+  busy = false;
+  disarmPowerup();
+  updateStreakBadge();
+  updateHUD();
+  render();
+  document.getElementById("map-screen").classList.remove("open");
+}
+
+/* boot-time prompt; returns true if it took over the screen */
+function maybeOfferResume() {
+  const snap = P.session;
+  if (!snap || !snap.mode) return false;
+  // a daily snapshot from another date is dead — discard silently
+  if (snap.level && snap.level.isDaily && snap.savedAt !== new Date().toDateString()) {
+    P.session = null;
+    persist();
+    return false;
+  }
+  const scrim = document.getElementById("end-scrim");
+  document.getElementById("end-title").textContent = "Welcome back!";
+  const what = snap.mode === "relax" ? "a Relax session"
+    : snap.mode === "gauntlet" ? "a Gauntlet run (score " + (snap.levelScore || 0) + ")"
+    : snap.level && snap.level.isDaily ? "today's Daily Challenge"
+    : "Level " + (snap.level ? snap.level.id : "?");
+  document.getElementById("end-body").innerHTML =
+    '<p class="end-sub" style="font-size:14px;">You have ' + what + " in progress.</p>";
+  const btns = document.getElementById("end-buttons");
+  btns.innerHTML = "";
+  const discard = document.createElement("button");
+  discard.className = "modal-btn secondary";
+  discard.textContent = "Discard";
+  discard.onclick = () => {
+    P.session = null;
+    persist();
+    scrim.classList.remove("open");
+    openMap();
+  };
+  const resume = document.createElement("button");
+  resume.className = "modal-btn primary";
+  resume.textContent = "Resume";
+  resume.onclick = () => {
+    scrim.classList.remove("open");
+    restoreSnapshot(P.session);
+  };
+  btns.append(discard, resume);
+  scrim.classList.add("open");
+  return true;
 }
 
 /* =====================================================================
