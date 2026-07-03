@@ -1890,7 +1890,6 @@ function placePiece(piece, originR, originC) {
   if (mode === "journey") {
     if (movesLeft !== null) movesLeft--;      // each placement = one move
     levelScore += 5;
-    if (level && level.type === "boss" && !levelDone) bossTickFn();
     updateHUD();
   } else if (mode === "gauntlet") {
     levelScore += 5;
@@ -2138,7 +2137,7 @@ function clearLines(rows, cols, originCells) {
     busy = false;
     render();
     // Option C re-script trigger (Definition 1: literally empty board).
-    if (onboardingLeft === 0) {
+    if (mode === "relax" && onboardingLeft === 0) {
       const boardEmpty = grid.every(row => row.every(c => !c));
       if (boardEmpty) onboardingLeft = ONBOARDING_LENGTH;
     }
@@ -2155,6 +2154,9 @@ function afterTurn() {
   if (mode === "journey") {
     // journey is win-or-lose: out of moves, or nothing fits -> level failed
     if (!levelDone) {
+      // boss pressure lands AFTER the turn resolves (same rule as gauntlet):
+      // it can add difficulty, never interact with the clear you just earned
+      if (level && level.type === "boss") bossTickFn();
       if (movesLeft !== null && movesLeft <= 0) {
         render();
         levelFail("Out of moves");
@@ -2353,6 +2355,9 @@ function startDrag(e, piece, pieceEl) {
     persist();
     disarmPowerup();
     piece.shape = rotateShape(piece.shape);
+    // render() only rebuilds a slot when the piece ID changes — rotation
+    // keeps the object, so give it a fresh ID or the DOM never repaints.
+    piece.id = ++pieceId;
     render();
     toast("Rotated");
     return;
@@ -3422,7 +3427,12 @@ function showLevelEnd(won, info) {
     const retry = document.createElement("button");
     retry.className = "modal-btn primary";
     retry.textContent = "Retry";
-    retry.onclick = () => { scrim.classList.remove("open"); startLevel(level.id); };
+    retry.onclick = () => {
+      scrim.classList.remove("open");
+      // a daily must retry as THE daily (same date seed, no map progression)
+      if (level && level.isDaily) startLevelSpec(level);
+      else startLevel(level.id);
+    };
     btns.append(mapBtn, retry);
   }
   scrim.classList.add("open");
