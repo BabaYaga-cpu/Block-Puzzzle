@@ -257,13 +257,13 @@
     z-index: 2;
   }
   @keyframes clearpop {
-    0%   { filter: brightness(1) saturate(1); transform: scale(1);
+    0%   { filter: brightness(1) saturate(1); transform: scale(1) rotate(0deg);
            box-shadow: 0 0 0 rgba(255,255,255,0); }
-    28%  { filter: brightness(3.4) saturate(1.5); transform: scale(1.32);
+    28%  { filter: brightness(3.4) saturate(1.5); transform: scale(1.32) rotate(5deg);
            box-shadow: 0 0 24px 6px rgba(255,255,255,.95), 0 0 48px 12px rgba(255,255,255,.35); }
-    60%  { filter: brightness(2) saturate(1.2); transform: scale(.9);
+    60%  { filter: brightness(2) saturate(1.2); transform: scale(.9) rotate(-4deg);
            box-shadow: 0 0 14px 2px rgba(255,255,255,.4); }
-    100% { filter: brightness(1); transform: scale(.15); opacity: 0;
+    100% { filter: brightness(1); transform: scale(.15) rotate(14deg); opacity: 0;
            box-shadow: 0 0 0 rgba(255,255,255,0); }
   }
 
@@ -953,6 +953,31 @@
     0%   { transform: translate(0, 0) rotate(0) scale(1); opacity: 1; }
     100% { transform: translate(var(--dx, 0px), var(--dy, 0px)) rotate(var(--rot, 360deg)) scale(.3); opacity: 0; }
   }
+  /* CLEAR SPLASH — center-board headline for multi-line clears.
+     Bursts in with a bounce, holds, then floats up and fades.
+     transform/opacity only; absolutely positioned so it never joins
+     the board's grid layout. */
+  .clear-splash {
+    position: absolute;
+    left: 50%; top: 50%;
+    z-index: 10;
+    pointer-events: none;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    white-space: nowrap;
+    text-shadow: 0 2px 0 rgba(0,0,0,.4), 0 0 18px currentColor;
+    animation: splashburst 1s cubic-bezier(.2, .9, .3, 1.2) forwards;
+    will-change: transform, opacity;
+  }
+  @keyframes splashburst {
+    0%   { transform: translate(-50%, -50%) scale(0);   opacity: 0; }
+    18%  { transform: translate(-50%, -50%) scale(1.3); opacity: 1; }
+    32%  { transform: translate(-50%, -50%) scale(1); }
+    68%  { transform: translate(-50%, -50%) scale(1);   opacity: 1; }
+    100% { transform: translate(-50%, calc(-50% - 46px)) scale(1); opacity: 0; }
+  }
+
   /* multi-line clears rattle the whole board */
   .board-wrap.shake { animation: boardshake .3s ease; }
   @keyframes boardshake {
@@ -2135,39 +2160,8 @@ function clearLines(rows, cols, originCells) {
   let objHits = 0;
   toClear.forEach(key => { if (targets.includes(key)) objHits++; });
 
-  // visual: SHOCKWAVE — cells pop outward from where the piece landed,
-  // each with a small stagger by distance, and burst into shards. Ice
-  // that will SURVIVE this clear (still 2 hits) cracks in place instead.
-  let epR = 3.5, epC = 3.5;                       // epicenter (board center fallback)
-  if (originCells && originCells.length) {
-    epR = originCells.reduce((s, p) => s + p[0], 0) / originCells.length;
-    epC = originCells.reduce((s, p) => s + p[1], 0) / originCells.length;
-  }
-  toClear.forEach(key => {
-    const [r, c] = key.split(",").map(Number);
-    const el = cellAt(r, c);
-    const delay = Math.round(Math.hypot(r - epR, c - epC) * 18);   // ms, max ~130
-    el.style.animationDelay = delay + "ms";
-    if (iceHP[key] > 1) {
-      el.classList.add("ice-hit");
-      setTimeout(() => spawnShards(el, "#cfe8ff", 3), delay);      // icy chips
-    } else {
-      el.classList.add("clearing");
-      const shardColor = gemCells[key] || grid[r][c] || "#fff";
-      const n = (gemCells[key] ? 8 : 5) + (rows.length + cols.length >= 3 ? 3 : 0); // bigger clears, bigger bursts
-      setTimeout(() => spawnShards(el, shardColor, n), delay);
-    }
-  });
-  if (rows.length + cols.length >= 3) screenFlash();   // 3+ lines: screen pop
-  if (rows.length + cols.length >= 2) {
-    const wrap = boardEl.parentElement;
-    if (wrap && wrap.classList) {
-      wrap.classList.remove("shake");
-      void wrap.offsetWidth;
-      wrap.classList.add("shake");
-      setTimeout(() => wrap.classList.remove("shake"), 320);
-    }
-  }
+  // ALL clear visuals route through one entry point — see CLEAR EFFECTS
+  triggerClearEffects(rows.length + cols.length, toClear, originCells);
 
   const lines = rows.length + cols.length;
   stats.linesCleared += lines;
@@ -2184,9 +2178,7 @@ function clearLines(rows, cols, originCells) {
   updateStreakBadge();
 
   // feedback: show combo and/or the active multiplier
-  if (lines >= 4) {
-    toast("\u{1F4A5} MONSTER CLEAR \u2014 " + lines + " lines!");
-  } else if (lines >= 2 && streak > 1) {
+  if (lines >= 2 && streak > 1) {
     toast(lines + " lines · x" + (mult % 1 === 0 ? mult : mult.toFixed(1)) + " streak!");
   } else if (lines >= 2) {
     toast(lines + " lines! +" + (lines - 1) + " combo");
@@ -4035,6 +4027,68 @@ function acceptRescue() {
   updateHUD();
   render();
   saveSnapshot();          // the rescued attempt is resumable again
+}
+
+/* =====================================================================
+   CLEAR EFFECTS — single entry point for all line-clear juice.
+   triggerClearEffects(lineCount, cellKeys, originCells):
+     · per-cell pop-out (scale + spin + bloom), staggered outward from
+       where the piece landed (shockwave feel)
+     · shard + ring bursts per cell (gems burst bigger, ice chips)
+     · board shake at 2+, screen flash at 3+
+     · center-board splash text at 2+ ("DOUBLE!" ... "MONSTER CLEAR!")
+   Everything animates transform/opacity only — mobile stays fluid.
+   ===================================================================== */
+function triggerClearEffects(lineCount, cellKeys, originCells) {
+  // epicenter = centroid of the placed piece (board center as fallback)
+  let epR = 3.5, epC = 3.5;
+  if (originCells && originCells.length) {
+    epR = originCells.reduce((s, p) => s + p[0], 0) / originCells.length;
+    epC = originCells.reduce((s, p) => s + p[1], 0) / originCells.length;
+  }
+  cellKeys.forEach(key => {
+    const [r, c] = key.split(",").map(Number);
+    const el = cellAt(r, c);
+    const delay = Math.round(Math.hypot(r - epR, c - epC) * 18);   // ms, max ~130
+    el.style.animationDelay = delay + "ms";
+    if (iceHP[key] > 1) {
+      el.classList.add("ice-hit");
+      setTimeout(() => spawnShards(el, "#cfe8ff", 3), delay);      // icy chips
+    } else {
+      el.classList.add("clearing");
+      const shardColor = gemCells[key] || grid[r][c] || "#fff";
+      const n = (gemCells[key] ? 8 : 5) + (lineCount >= 3 ? 3 : 0);
+      setTimeout(() => spawnShards(el, shardColor, n), delay);
+    }
+  });
+  if (lineCount >= 2) {
+    showClearSplash(lineCount);
+    const wrap = boardEl.parentElement;
+    if (wrap && wrap.classList) {
+      wrap.classList.remove("shake");
+      void wrap.offsetWidth;
+      wrap.classList.add("shake");
+      setTimeout(() => wrap.classList.remove("shake"), 320);
+    }
+  }
+  if (lineCount >= 3) screenFlash();
+}
+
+/* tiered headline in the middle of the board */
+function showClearSplash(lineCount) {
+  if (lineCount < 2) return;
+  const tier =
+      lineCount >= 5 ? { text: "MONSTER CLEAR!", color: "#c45dff",     size: 34 }
+    : lineCount === 4 ? { text: "MEGA CLEAR!",   color: "#f06d4e",     size: 32 }
+    : lineCount === 3 ? { text: "TRIPLE COMBO!", color: "var(--gold)", size: 28 }
+    :                   { text: "DOUBLE!",       color: "var(--mint)", size: 25 };
+  const el = document.createElement("div");
+  el.className = "clear-splash";
+  el.textContent = tier.text;
+  el.style.color = tier.color;
+  el.style.fontSize = tier.size + "px";
+  boardEl.appendChild(el);                 // absolute -> doesn't join the grid
+  setTimeout(() => el.remove(), 1100);
 }
 
 /* =====================================================================
