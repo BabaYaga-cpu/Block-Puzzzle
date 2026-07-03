@@ -286,7 +286,7 @@
   }
   .hold {
     flex: none;
-    width: 84px;
+    width: 92px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -2691,25 +2691,26 @@ function onDragMove(e) {
   // horizontal drag doesn't trigger — you have to land clearly inside.
   // (Pairs with the wider deadzone in CSS — Fix 1 + Fix 2 together.)
   const hb = drag.holdRect;   // cached at grab time
-  const HOLD_INSET = 0.12;
-  const insetX = hb.width  * HOLD_INSET;
-  const insetY = hb.height * HOLD_INSET;
-  // The hold test tracks the PIECE, not the raw finger — the same
-  // treatment touch lift gives the board ghost. With TOUCH_LIFT the
-  // finger rides ~3 cells BELOW the floating piece, so placing on the
-  // bottom-left board rows physically parks the finger on top of the
-  // hold slot; testing the finger there hijacked legitimate left-side
-  // placements. Testing the lifted/offset piece point means hold only
-  // triggers when the piece is VISIBLY over the slot — what you see is
-  // what you drop, for the board and the hold slot alike. (On mouse,
-  // lift/offset are 0, so this is identical to the old finger test.)
-  const pieceX = lx;
-  const pieceY = ly - liftPx;
-  const overHold =
-    pieceX >= hb.left   + insetX &&
-    pieceX <= hb.right  - insetX &&
-    pieceY >= hb.top    + insetY &&
-    pieceY <= hb.bottom - insetY;
+  // HOLD HITBOX, take 3. Piece-point-only testing (previous approach)
+  // made hold nearly unreachable on touch: with the 3-cell lift, the
+  // finger had to travel ~3 cells BELOW the slot — off the bottom of
+  // the screen. But raw finger testing (the approach before that) let a
+  // finger parked over hold hijack legitimate bottom-left placements.
+  // The rule that gets both:
+  //   1. a VALID BOARD PLACEMENT always wins — hold can never steal a
+  //      drop the ghost is showing as placeable;
+  //   2. otherwise hold triggers if EITHER the finger OR the visual
+  //      piece point is inside the slot GROWN by 35% per side.
+  // Easy to hit on purpose, near-impossible to hit by accident.
+  const HOLD_PAD = 0.35;
+  const padX = hb.width  * HOLD_PAD;
+  const padY = hb.height * HOLD_PAD;
+  const nearHold = (x, y) =>
+    x >= hb.left - padX && x <= hb.right  + padX &&
+    y >= hb.top  - padY && y <= hb.bottom + padY;
+  const boardValid = canPlace(piece.shape, originR, originC);
+  const overHold = !boardValid &&
+    (nearHold(e.clientX, e.clientY) || nearHold(lx, ly - liftPx));
   drag.overHold = overHold;
 
   // DIRTY CHECK: ghost + hold highlight only need repainting when the
