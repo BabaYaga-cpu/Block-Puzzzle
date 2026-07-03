@@ -11,7 +11,7 @@
               MULTIPLIER · SKIN SHOP (block colors + backgrounds) ·
               SESSION STATS readout for tuning the earn rate.
   What's OUT: other modes, gauntlet, real progression, persistence
-              (owned skins reset on reload — fine for a feel the test).
+              (owned skins reset on reload — fine for a feel test).
 
   Everything is in this one file on purpose — read it top to bottom.
   The game LOGIC (pieces, placement, clears, scoring, skins) is plain
@@ -625,6 +625,18 @@
   .shx-dot { width:7px; height:7px; border-radius:999px; padding:0; background:rgba(255,255,255,.2);
     border:none; cursor:pointer; transition:width .3s, background .3s; }
   .shx-dot.active { width:20px; background:linear-gradient(90deg, var(--gold), var(--mint)); }
+
+  /* ===== SETTINGS PANEL ===== */
+  .set-row { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:14px 2px; border-bottom:1px solid var(--line); }
+  .set-row:last-child { border-bottom:none; }
+  .set-name { font-size:15px; font-weight:600; color:var(--text); }
+  .set-sub  { font-size:12px; color:var(--text-dim); margin-top:2px; }
+  .toggle { flex:none; width:52px; height:30px; border-radius:999px; border:1px solid var(--line);
+    background:rgba(0,0,0,.35); position:relative; cursor:pointer; transition:background .2s, border-color .2s; }
+  .toggle .knob { position:absolute; top:3px; left:3px; width:22px; height:22px; border-radius:50%;
+    background:var(--text-dim); transition:transform .22s cubic-bezier(.34,1.3,.64,1), background .2s; }
+  .toggle.on { background:linear-gradient(135deg, var(--gold), var(--mint)); border-color:transparent; }
+  .toggle.on .knob { transform:translateX(22px); background:#fff; }
   .price-row { display: flex; align-items: center; gap: 5px; font-size: 12px; }
   .price-row .mini-dot {
     width: 11px; height: 11px; border-radius: 50%;
@@ -1371,6 +1383,7 @@
       <button class="iconbtn" id="map-relax">Relax</button>
       <button class="iconbtn" id="map-shop">Shop</button>
       <button class="iconbtn" id="map-stats">Stats</button>
+      <button class="iconbtn" id="map-settings">Settings</button>
     </div>
   </div>
 
@@ -1424,6 +1437,23 @@
   </div>
 
   <!-- ===== ROTATE POWER-UP CHOOSER ===== -->
+  <div class="scrim" id="settings-scrim">
+    <div class="modal">
+      <div class="modal-head">
+        <h2>Settings</h2>
+        <button class="close" data-close="settings-scrim">&times;</button>
+      </div>
+      <div class="set-row">
+        <div><div class="set-name">Sound effects</div><div class="set-sub">Placements, clears, wins</div></div>
+        <button class="toggle" id="set-sound" role="switch" aria-checked="true"><span class="knob"></span></button>
+      </div>
+      <div class="set-row">
+        <div><div class="set-name">Haptics</div><div class="set-sub">Vibration on clears &amp; wins</div></div>
+        <button class="toggle" id="set-haptics" role="switch" aria-checked="true"><span class="knob"></span></button>
+      </div>
+    </div>
+  </div>
+
   <div class="scrim" id="rotate-scrim">
     <div class="modal rotate-modal">
       <div class="modal-head">
@@ -1689,7 +1719,7 @@ const PIECES = [
    is the hook for future schema bumps — old saves never break.
    ===================================================================== */
 const SAVE_KEY = "blockpuzzle_save";
-const SAVE_VERSION = 4;
+const SAVE_VERSION = 5;
 const DAILY_BONUS = 50;
 
 function defaultSave() {
@@ -1708,6 +1738,7 @@ function defaultSave() {
     dailyRun: { lastWin: null, bestScore: 0 },
     session: null,                       // mid-level snapshot (resume on relaunch)
     touch: { lift: 3, offX: 0.75, multX: 2, multY: 1.5 },  // drag-feel tuning
+    settings: { sound: true, haptics: true },              // audio + vibration toggles
   };
 }
 function migrateSave(s) {
@@ -1729,6 +1760,11 @@ function migrateSave(s) {
     s.touch = s.touch || { lift: 3, offX: 0.75, multX: 2, multY: 1.5 };
     s.version = 4;
   }
+  if (s.version === 4) {
+    // v5: sound + haptics settings
+    s.settings = s.settings || { sound: true, haptics: true };
+    s.version = 5;
+  }
   return s;
 }
 function loadSave() {
@@ -1744,6 +1780,7 @@ function loadSave() {
       items:    { ...d.items,    ...s.items },
       totals:   { ...d.totals,   ...s.totals },
       touch:    { ...d.touch,    ...(s.touch || {}) },
+      settings: { ...d.settings, ...(s.settings || {}) },
       dailyRun: { ...d.dailyRun, ...(s.dailyRun || {}) },
     };
   } catch (e) {
@@ -2160,6 +2197,18 @@ function bindUI() {
     renderSummary();
     document.getElementById("summary-scrim").classList.add("open");
   });
+  document.getElementById("map-settings").addEventListener("click", openSettings);
+  document.getElementById("set-sound").addEventListener("click", () => {
+    P.settings.sound = !P.settings.sound; persist(); renderSettings();
+    if (P.settings.sound) { initAudio(); SFX.place(); }   // instant audible confirmation
+  });
+  document.getElementById("set-haptics").addEventListener("click", () => {
+    P.settings.haptics = !P.settings.haptics; persist(); renderSettings();
+    if (P.settings.haptics) haptic(20);
+  });
+  // Unlock the audio context on the first user gesture (mobile autoplay policy).
+  ["pointerdown", "touchstart", "keydown"].forEach(ev =>
+    window.addEventListener(ev, unlockAudio, { once: true, passive: true }));
 
   // power-up targeting: with hammer/bomb armed, a board tap applies it
   boardEl.addEventListener("pointerdown", e => {
@@ -2338,6 +2387,7 @@ function holesCreatedBy(placedCells) {
 
 /* commit a piece to the grid model + handle clears, coins, objective */
 function placePiece(piece, originR, originC) {
+  SFX.place();
   const placed = [];
   for (const [dr, dc] of piece.shape.cells) {
     const r = originR + dr, c = originC + dc;
@@ -2391,6 +2441,7 @@ function placePiece(piece, originR, originC) {
     updateSurgeHUD();
     screenFlash();
     toast("\u26a1 OVERDRIVE!");
+    SFX.surge(); haptic(40);
   }
 
   // --- PLACEMENT COINS -------------------------------------------------
@@ -3236,6 +3287,7 @@ function buySkin(id) {
   persist();
   equipSkin(id);            // auto-equip on purchase — instant payoff
   toast("Unlocked: " + s.name);
+  SFX.coin();
 }
 
 function equipSkin(id) {
@@ -3946,6 +3998,7 @@ function showLevelIntro(n) {
 /* ---- level end ------------------------------------------------------- */
 function levelWin() {
   levelDone = true;
+  SFX.win(); haptic([28, 44, 28, 44, 60]);
   P.session = null;        // attempt finished — nothing to resume
   busy = true;                                     // freeze input under the modal
   if (movesLeft !== null) levelScore += movesLeft * 40;   // efficiency bonus
@@ -3986,6 +4039,7 @@ function levelWin() {
 
 function levelFail(reason) {
   levelDone = true;
+  SFX.fail(); haptic(50);
   busy = true;
   P.session = null;        // attempt over (acceptRescue re-snapshots if taken)
   persist();
@@ -4336,6 +4390,19 @@ function applyRotateChoice() {
   saveSnapshot();
 }
 
+function renderSettings() {
+  const snd = document.getElementById("set-sound");
+  const hap = document.getElementById("set-haptics");
+  snd.classList.toggle("on", !!P.settings.sound);
+  snd.setAttribute("aria-checked", P.settings.sound ? "true" : "false");
+  hap.classList.toggle("on", !!P.settings.haptics);
+  hap.setAttribute("aria-checked", P.settings.haptics ? "true" : "false");
+}
+function openSettings() {
+  renderSettings();
+  document.getElementById("settings-scrim").classList.add("open");
+}
+
 function renderPowerupBar() {
   const bar = document.getElementById("pu-bar");
   if (!bar) return;
@@ -4457,6 +4524,7 @@ function buyPowerup(id) {
   renderShop();
   renderPowerupBar();
   toast(pu.name + " +1");
+  SFX.coin();
 }
 
 /* =====================================================================
@@ -4536,7 +4604,77 @@ function updateSurgeHUD() {
      · center-board splash text at 2+ ("DOUBLE!" ... "MONSTER CLEAR!")
    Everything animates transform/opacity only — mobile stays fluid.
    ===================================================================== */
+/* =====================================================================
+   SOUND + HAPTICS — a tiny WebAudio synth (no audio files, keeps the
+   single-file build). Voices are short osc+envelope blips routed through
+   one master gain. Everything is gated by P.settings and unlocked on the
+   first user gesture (mobile autoplay policy). Clears rise in pitch with
+   the line count and the live streak, so a big combo sounds bigger.
+   ===================================================================== */
+let audioCtx = null, masterGain = null;
+function initAudio() {
+  if (audioCtx) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    audioCtx = new AC();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.5;
+    masterGain.connect(audioCtx.destination);
+  } catch (_) { audioCtx = null; }
+}
+function unlockAudio() {
+  initAudio();
+  if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+}
+function audioReady() {
+  if (!P.settings || !P.settings.sound) return false;
+  if (!audioCtx) initAudio();
+  if (!audioCtx) return false;
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return true;
+}
+/* one voice: freq (optionally gliding to glideTo) with a fast attack and
+   exponential decay over dur seconds, starting `when` seconds from now. */
+function tone(freq, dur, type, vol, when, glideTo) {
+  if (!audioReady()) return;
+  const t0 = audioCtx.currentTime + (when || 0);
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = type || "sine";
+  osc.frequency.setValueAtTime(freq, t0);
+  if (glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo, t0 + dur);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol || 0.3, t0 + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(g); g.connect(masterGain);
+  osc.start(t0); osc.stop(t0 + dur + 0.03);
+}
+const PENTA = [0, 3, 5, 7, 10, 12];   // minor-pentatonic offsets (semitones)
+const SFX = {
+  place() { tone(170 + Math.random() * 24, 0.055, "triangle", 0.16); },
+  clear(lineCount) {
+    const n = Math.max(1, Math.min(lineCount || 1, 5));
+    const mult = 1 + (typeof streak === "number" ? streak : 0) * STREAK_STEP; // streak brightens pitch
+    const base = 392 * Math.min(2, mult);          // G4 up, capped an octave
+    for (let i = 0; i < n + 1; i++) {
+      const semi = PENTA[Math.min(i, PENTA.length - 1)];
+      tone(base * Math.pow(2, semi / 12), 0.19, "triangle", 0.2, i * 0.05);
+    }
+  },
+  surge() { tone(196, 0.55, "sawtooth", 0.24, 0, 880); tone(392, 0.5, "square", 0.12, 0.04, 1200); },
+  win() { [0, 4, 7, 12].forEach((semi, i) => tone(523.25 * Math.pow(2, semi / 12), 0.3, "triangle", 0.24, i * 0.1)); },
+  fail() { tone(330, 0.5, "sine", 0.2, 0, 150); },
+  coin() { tone(880, 0.07, "square", 0.18); tone(1320, 0.09, "square", 0.16, 0.05); },
+};
+function haptic(pattern) {
+  if (!P.settings || !P.settings.haptics) return;
+  if (navigator.vibrate) { try { navigator.vibrate(pattern); } catch (_) {} }
+}
+
 function triggerClearEffects(lineCount, cellKeys, originCells) {
+  SFX.clear(lineCount);
+  haptic(lineCount >= 2 ? [18, 26, 18] : 14);
   // epicenter = centroid of the placed piece (board center as fallback)
   let epR = 3.5, epC = 3.5;
   if (originCells && originCells.length) {
