@@ -4,7 +4,7 @@
   Its job is to answer:
     1. Does placing pieces feel good? (drag + snap)
     2. Does a board objective create a "hmm, let me think" moment?
-    3. Does the coin / streak / shop loop feel rewarding
+    3. Does the coin / streak / shop loop feel rewarding?
 
   What's IN:  8x8 grid · three-piece tray · drag-and-drop · row/column
               clears · relax mode · one objective · coins · STREAK
@@ -3694,9 +3694,9 @@ function renderMap() {
       const pu = POWERUPS[(Math.random() * POWERUPS.length) | 0];
       P.items[pu.id] = (P.items[pu.id] || 0) + 1;
       awardCoins(gift);
-      toast("\u{1F381} +" + gift + " coins & a " + pu.name + "!");
       document.getElementById("map-coin-count").textContent = coins;
       renderMap();
+      showChestReward(zone.name, gift, pu);   // explicit popup — no confusion
     });
     path.appendChild(chest);
   }
@@ -4079,6 +4079,33 @@ function maybeOfferResume() {
   btns.append(discard, resume);
   scrim.classList.add("open");
   return true;
+}
+
+/* =====================================================================
+   CHEST REWARD POPUP — spells out exactly what the player received
+   ===================================================================== */
+function showChestReward(zoneName, gift, pu) {
+  const scrim = document.getElementById("end-scrim");
+  document.getElementById("end-title").textContent = "Zone chest opened!";
+  document.getElementById("end-body").innerHTML =
+    '<div style="text-align:center;font-size:54px;margin:6px 0;">\u{1F381}</div>' +
+    '<div class="end-reward"><span style="width:16px;height:16px;border-radius:50%;' +
+      'background:radial-gradient(circle at 35% 30%, #f4cf8e, var(--gold));"></span>+' + gift + " coins</div>" +
+    '<div style="display:flex;align-items:center;justify-content:center;gap:8px;' +
+      'font-size:16px;font-weight:600;margin-top:8px;">' +
+      '<span style="font-size:24px;">' + pu.icon + "</span>1 \u00d7 " + pu.name + "</div>" +
+    '<p class="end-sub">' + zoneName + " reward \u2014 coins are in your wallet, " +
+      "the power-up is on your bar in-game.</p>";
+  const btns = document.getElementById("end-buttons");
+  btns.innerHTML = "";
+  const ok = document.createElement("button");
+  ok.className = "modal-btn primary";
+  ok.textContent = "Collect";
+  ok.onclick = () => scrim.classList.remove("open");
+  btns.appendChild(ok);
+  const modalEl = scrim.querySelector ? scrim.querySelector(".modal") : null;
+  if (modalEl) confettiBurst(modalEl);
+  scrim.classList.add("open");
 }
 
 /* =====================================================================
