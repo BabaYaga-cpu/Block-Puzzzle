@@ -1335,7 +1335,7 @@ let TOUCH_LIFT = 3;
    floating piece on touch drags. The sideways analog of TOUCH_LIFT.
    Applied AFTER input amplification (below), so it's a fixed visual
    shift regardless of how far the thumb has moved. */
-let TOUCH_OFFSET_X = 0.25;
+let TOUCH_OFFSET_X = 0.75;
 
 /* TOUCH_MULT_X / TOUCH_MULT_Y — INPUT AMPLIFICATION (Block Blast style).
    The finger→piece mapping is NOT 1:1: motion is amplified relative to
@@ -1492,7 +1492,7 @@ const PIECES = [
    is the hook for future schema bumps — old saves never break.
    ===================================================================== */
 const SAVE_KEY = "blockpuzzle_save";
-const SAVE_VERSION = 3;
+const SAVE_VERSION = 4;
 const DAILY_BONUS = 50;
 
 function defaultSave() {
@@ -1510,6 +1510,7 @@ function defaultSave() {
     gauntletBest: 0,                     // best endless-run score
     dailyRun: { lastWin: null, bestScore: 0 },
     session: null,                       // mid-level snapshot (resume on relaunch)
+    touch: { lift: 3, offX: 0.75, multX: 2, multY: 1.5 },  // drag-feel tuning
   };
 }
 function migrateSave(s) {
@@ -1526,6 +1527,11 @@ function migrateSave(s) {
     if (s.equipped) s.equipped.orbs = s.equipped.orbs || "orbs_cosmic";
     s.version = 3;
   }
+  if (s.version === 3) {
+    // v4: touch-feel sliders persist across sessions
+    s.touch = s.touch || { lift: 3, offX: 0.75, multX: 2, multY: 1.5 };
+    s.version = 4;
+  }
   return s;
 }
 function loadSave() {
@@ -1540,6 +1546,7 @@ function loadSave() {
       daily:    { ...d.daily,    ...s.daily },
       items:    { ...d.items,    ...s.items },
       totals:   { ...d.totals,   ...s.totals },
+      touch:    { ...d.touch,    ...(s.touch || {}) },
       dailyRun: { ...d.dailyRun, ...(s.dailyRun || {}) },
     };
   } catch (e) {
@@ -1901,31 +1908,32 @@ function bindUI() {
   // Debug sliders — touch lift AND horizontal offset. Both live in the
   // same panel, both invisible until the first touch event reveals them.
   // Tunable mid-drag on phone so you can find values that feel right.
-  const liftSlider = document.getElementById("lift-slider");
-  const liftValue  = document.getElementById("lift-value");
-  const liftWrap   = document.getElementById("lift-slider-wrap");
-  liftSlider.addEventListener("input", () => {
-    TOUCH_LIFT = parseFloat(liftSlider.value);
-    liftValue.textContent = liftSlider.value;
-  });
-  const xoffSlider = document.getElementById("xoff-slider");
-  const xoffValue  = document.getElementById("xoff-value");
-  xoffSlider.addEventListener("input", () => {
-    TOUCH_OFFSET_X = parseFloat(xoffSlider.value);
-    xoffValue.textContent = xoffSlider.value;
-  });
-  const xmultSlider = document.getElementById("xmult-slider");
-  const xmultValue  = document.getElementById("xmult-value");
-  xmultSlider.addEventListener("input", () => {
-    TOUCH_MULT_X = parseFloat(xmultSlider.value);
-    xmultValue.textContent = xmultSlider.value;
-  });
-  const ymultSlider = document.getElementById("ymult-slider");
-  const ymultValue  = document.getElementById("ymult-value");
-  ymultSlider.addEventListener("input", () => {
-    TOUCH_MULT_Y = parseFloat(ymultSlider.value);
-    ymultValue.textContent = ymultSlider.value;
-  });
+  // TOUCH-FEEL SETTINGS — restored from the save at boot, written back
+  // on every change, so a player's tuned drag feel survives reloads.
+  const liftWrap = document.getElementById("lift-slider-wrap");
+  const touchSettings = [
+    { key: "lift",  slider: "lift-slider",  label: "lift-value",  set: v => { TOUCH_LIFT = v; } },
+    { key: "offX",  slider: "xoff-slider",  label: "xoff-value",  set: v => { TOUCH_OFFSET_X = v; } },
+    { key: "multX", slider: "xmult-slider", label: "xmult-value", set: v => { TOUCH_MULT_X = v; } },
+    { key: "multY", slider: "ymult-slider", label: "ymult-value", set: v => { TOUCH_MULT_Y = v; } },
+  ];
+  for (const ts of touchSettings) {
+    const slider = document.getElementById(ts.slider);
+    const label = document.getElementById(ts.label);
+    const saved = P.touch ? P.touch[ts.key] : undefined;
+    if (saved !== undefined && saved !== null && !isNaN(saved)) {
+      ts.set(saved);                       // restore the tuned value
+      slider.value = String(saved);
+      label.textContent = String(saved);
+    }
+    slider.addEventListener("input", () => {
+      const v = parseFloat(slider.value);
+      ts.set(v);
+      label.textContent = slider.value;
+      P.touch[ts.key] = v;
+      persist();
+    });
+  }
   window.addEventListener("touchstart", () => {
     liftWrap.classList.add("show");
   }, { once: true, passive: true });
