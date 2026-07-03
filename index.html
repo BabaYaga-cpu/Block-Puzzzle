@@ -1221,6 +1221,9 @@ const SKINS = {
       colors:["#78866b","#c08a78","#d9b48f"] },
     { id:"blocks_cyber",   name:"Cyberpunk",    cost:1500, unlockLevel:15,
       colors:["#a100ff","#39ff14","#ff5e00"] },
+    /* free — one tap in the shop unlocks it for everyone */
+    { id:"blocks_ukraine", name:"Ukraine",      cost:0,
+      colors:["#ffd700","#0057b7","#4d9de0","#ffe45d","#2a6fc9","#f2c94c"] },
   ],
   bg: [
     { id:"bg_default", name:"Ember",   cost:0,
@@ -1237,6 +1240,11 @@ const SKINS = {
       well:"#1e241c", page:"#14170f", glow1:"#28321f", glow2:"#2a2318" },
     { id:"bg_cyber",   name:"Cyberpunk",    cost:1400, unlockLevel:15,
       well:"#22262a", page:"#111318", glow1:"#241436", glow2:"#0f2a16" },
+    /* flag split: `split` paints the page as two horizontal bands
+       (top / bottom) instead of a single page color. Free. */
+    { id:"bg_ukraine", name:"Ukraine",      cost:0,
+      well:"#1c2f52", page:"#0b4ea2", glow1:"#3d7fd4", glow2:"#ffd700",
+      split:["#0b4ea2","#d4af1f"] },
   ],
 };
 
@@ -2782,10 +2790,17 @@ function applyBackgroundSkin() {
   if (!s) return;
   const root = document.documentElement.style;
   root.setProperty("--cell", s.well);
+  // `split` skins paint the page as two horizontal bands (flag-style);
+  // the glows soften to tints so the bands stay readable behind the UI
+  const base = s.split
+    ? `linear-gradient(180deg, ${s.split[0]} 0%, ${s.split[0]} 47%, ${s.split[1]} 53%, ${s.split[1]} 100%)`
+    : s.page;
+  const g1 = s.split ? s.glow1 + "55" : s.glow1;
+  const g2 = s.split ? s.glow2 + "40" : s.glow2;
   document.body.style.background =
-    `radial-gradient(120% 80% at 50% -10%, ${s.glow1} 0%, transparent 60%),` +
-    `radial-gradient(100% 60% at 50% 110%, ${s.glow2} 0%, transparent 55%),` +
-    s.page;
+    `radial-gradient(120% 80% at 50% -10%, ${g1} 0%, transparent 60%),` +
+    `radial-gradient(100% 60% at 50% 110%, ${g2} 0%, transparent 55%),` +
+    base;
   // repaint existing empty wells immediately
   boardEl.querySelectorAll(".cell:not(.filled)").forEach(c => {
     c.style.background = "";
@@ -2864,7 +2879,9 @@ function renderShop() {
           prev.appendChild(sw);
         });
       } else {
-        prev.style.background = skin.page;
+        prev.style.background = skin.split
+          ? `linear-gradient(180deg, ${skin.split[0]} 0 50%, ${skin.split[1]} 50% 100%)`
+          : skin.page;
         prev.style.gridTemplateColumns = "repeat(3,1fr)";
         // show the well color + a couple of glow chips
         [skin.well, skin.glow1, skin.glow2].forEach(col => {
@@ -2887,8 +2904,10 @@ function renderShop() {
         btn.disabled = true;
       } else if (!owned) {
         btn.className = "skin-btn buy";
-        btn.innerHTML = `<span class="price-row" style="justify-content:center;">` +
-                        `<span class="mini-dot"></span>${skin.cost}</span>`;
+        btn.innerHTML = skin.cost === 0
+          ? "Free"
+          : `<span class="price-row" style="justify-content:center;">` +
+            `<span class="mini-dot"></span>${skin.cost}</span>`;
         btn.disabled = coins < skin.cost;
         btn.addEventListener("click", () => buySkin(skin.id));
       } else if (isEquipped) {
