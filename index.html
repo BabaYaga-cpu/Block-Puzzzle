@@ -11,7 +11,7 @@
               MULTIPLIER · SKIN SHOP (block colors + backgrounds) ·
               SESSION STATS readout for tuning the earn rate.
   What's OUT: other modes, gauntlet, real progression, persistence
-              (owned sins reset on reload — fine for a feel test).
+              (owned skins reset on reload — fine for a feel test).
 
   Everything is in this one file on purpose — read it top to bottom.
   The game LOGIC (pieces, placement, clears, scoring, skins) is plain
@@ -697,6 +697,18 @@
     padding-bottom: max(28px, env(safe-area-inset-bottom));
     padding-left:   max(14px, env(safe-area-inset-left));
     padding-right:  max(14px, env(safe-area-inset-right));
+  }
+  /* SHORT SCREENS (iPhone in Safari, browser chrome eating height):
+     tighten the vertical rhythm and drop the hint text so the board,
+     tray AND power-up bar all fit with no scrolling. sizeBoard() then
+     shrinks the board itself to whatever space remains. */
+  @media (max-height: 780px) {
+    .hint { display: none; }
+    body {
+      gap: 10px;
+      padding-top:    max(10px, env(safe-area-inset-top));
+      padding-bottom: max(10px, env(safe-area-inset-bottom));
+    }
   }
 </style>
 <style>
@@ -2237,12 +2249,39 @@ function bindUI() {
 /* Make the board fit the screen, then publish the real cell size to CSS
    so the floating drag-piece lines up pixel-perfect with the grid. */
 function sizeBoard() {
-  const maxW = Math.min(window.innerWidth - 28, 460);
   const gap = 4;
-  const cell = Math.floor((maxW - gap * (GRID_SIZE + 1)) / GRID_SIZE);
+  const maxW = Math.min(window.innerWidth - 28, 460);
+
+  /* HEIGHT FIT — the fix for "I have to scroll to see my pieces".
+     Measure everything on the page that ISN'T the board (header, toolbar,
+     objective panel, surge bar, tray, power-up bar, hint), subtract it
+     from the visual viewport, and give the board only what's left. The
+     board shrinks; the tray and power-ups stay on screen. */
+  const vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+  const wrap = document.querySelector(".board-wrap");
+  let other = 0;
+  if (wrap) {
+    const bs = getComputedStyle(document.body);
+    const kids = [...document.body.children].filter(el => {
+      if (el === wrap) return false;
+      const cs = getComputedStyle(el);
+      return cs.display !== "none" && cs.position !== "fixed" && cs.position !== "absolute";
+    });
+    for (const el of kids) other += el.getBoundingClientRect().height;
+    other += (parseFloat(bs.paddingTop) || 0) + (parseFloat(bs.paddingBottom) || 0);
+    other += (parseFloat(bs.rowGap) || 0) * kids.length;   // flex gaps
+  } else {
+    other = 320;                                           // pre-DOM fallback
+  }
+  const maxH = Math.max(200, vh - other - 6);
+
+  const size = Math.min(maxW, maxH);
+  const cell = Math.max(26, Math.floor((size - gap * (GRID_SIZE + 1)) / GRID_SIZE));
   document.documentElement.style.setProperty("--cell-size", cell + "px");
 }
 window.addEventListener("resize", () => { sizeBoard(); });
+if (window.visualViewport)
+  window.visualViewport.addEventListener("resize", () => { sizeBoard(); });
 
 /* =====================================================================
    OBJECTIVE  — pick OBJ_TILES random empty cells to "glow".
@@ -3777,6 +3816,7 @@ function startLevelSpec(spec) {
   updateHUD();
   render();
   document.getElementById("map-screen").classList.remove("open");
+  requestAnimationFrame(sizeBoard);   // chrome above/below the board changed
   document.body.classList.remove("on-map");
   surgeCharge = 0;
   updateSurgeHUD();
@@ -3854,6 +3894,7 @@ function startGauntlet() {
   updateHUD();
   render();
   document.getElementById("map-screen").classList.remove("open");
+  requestAnimationFrame(sizeBoard);   // chrome above/below the board changed
   document.body.classList.remove("on-map");
   surgeCharge = 0;
   updateSurgeHUD();
@@ -3910,6 +3951,7 @@ function startRelax() {
   updateHUD();
   render();
   document.getElementById("map-screen").classList.remove("open");
+  requestAnimationFrame(sizeBoard);   // chrome above/below the board changed
   document.body.classList.remove("on-map");
   surgeCharge = 0;
   updateSurgeHUD();
@@ -4861,6 +4903,7 @@ function restoreSnapshot(snap) {
   updateHUD();
   render();
   document.getElementById("map-screen").classList.remove("open");
+  requestAnimationFrame(sizeBoard);   // chrome above/below the board changed
   document.body.classList.remove("on-map");
 }
 
