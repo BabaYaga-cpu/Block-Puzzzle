@@ -17,7 +17,7 @@
   The game LOGIC (pieces, placement, clears, scoring, skins) is plain
   JS and will survive a port to Phaser / React Native later.
 
-  Tweak these first to change the feel:  GRID_SIZE, PIECES, he COIN_*
+  Tweak these first to change the feel:  GRID_SIZE, PIECES, the COIN_*
   values, STREAK_* values, and the SKINS list with their prices.
 -->
 <!DOCTYPE html>
@@ -705,11 +705,33 @@
   @media (max-height: 780px) {
     .hint { display: none; }
     body {
-      gap: 10px;
       padding-top:    max(10px, env(safe-area-inset-top));
       padding-bottom: max(10px, env(safe-area-inset-bottom));
     }
   }
+
+  /* ===== COMPACT CHROME ==================================================
+     Everything around the board slims down — header, toolbar, objective
+     panel, surge bar, tray, power-up bar. The height-aware sizeBoard()
+     hands every reclaimed pixel straight to the board. */
+  body { gap: 10px;
+         padding-left:  max(10px, env(safe-area-inset-left));
+         padding-right: max(10px, env(safe-area-inset-right)); }
+  .title { font-size: 12px; letter-spacing: .1em; }
+  .iconbtn { font-size: 12px; padding: 5px 10px; border-radius: 8px; }
+  .objective { padding: 6px 12px; border-radius: 11px; font-size: 13px; }
+  .objective .pip { width: 10px; height: 10px; }
+  .obj-row { gap: 8px; }
+  .surge-bar { height: 16px; }
+  .surge-label { font-size: 9px; }
+  .tray { min-height: 92px; border-radius: 13px; }
+  .tray-slot { min-height: 72px; }
+  .piece-cell { width: 21px; height: 21px; }
+  .hold { width: 76px; }
+  .hold .hold-well { min-height: 50px; }
+  .hold-label { font-size: 9px; }
+  .pu-btn { padding: 5px 4px 4px; font-size: 10px; border-radius: 10px; }
+  .pu-btn .ico { font-size: 15px; }
 </style>
 <style>
   /* =====================================================================
@@ -2250,7 +2272,7 @@ function bindUI() {
    so the floating drag-piece lines up pixel-perfect with the grid. */
 function sizeBoard() {
   const gap = 4;
-  const maxW = Math.min(window.innerWidth - 28, 460);
+  const maxW = Math.min(window.innerWidth - 22, 460);
 
   /* HEIGHT FIT — the fix for "I have to scroll to see my pieces".
      Measure everything on the page that ISN'T the board (header, toolbar,
