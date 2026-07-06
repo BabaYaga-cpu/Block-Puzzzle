@@ -1899,6 +1899,7 @@ function persist() {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(P)); } catch (e) { /* private mode etc. */ }
   clearTimeout(idbTimer);                // trailing throttle: persist storms -> one IDB write
   idbTimer = setTimeout(() => idbBackup(JSON.stringify(P)), 1500);
+  netPushBlob();                         // NET: touch/settings/session roam (debounced)
 }
 
 /* =====================================================================
@@ -2089,6 +2090,7 @@ let armedPowerup = null;   // "hammer" | "bomb" while waiting for a board tap
    fullness be damned. Surge-cleared lines do NOT recharge the meter. */
 const SURGE_REQ = 10;
 let surgeCharge = 0;
+let runCoinsEarned = 0;    // NET: in-run coins, reported at level end for server grant
 let rescueOffered = false; // near-miss continue: once per level attempt
 let continuesUsed = 0;     // paid continues taken this attempt (escalates cost)
 
@@ -2177,7 +2179,7 @@ function init() {
   updateSurgeHUD();
   render();
   if (!maybeOfferResume()) openMap();   // resume prompt, else the saga map
-  claimDailyBonus();
+  netBoot().then(() => { claimDailyBonus(); });   // merge server save, then daily (server clock)
 }
 
 /* modal open/close + shop/summary buttons */
@@ -2805,6 +2807,10 @@ function awardCoins(n) {
   const mapCoins = document.getElementById("map-coin-count");
   if (mapCoins) mapCoins.textContent = coins;
   P.totals.coinsEarned += gained;
+  // NET: journey earnings are granted server-side at level end; relax /
+  // gauntlet earnings batch-flush as capped run-earnings events
+  if (mode === "journey") runCoinsEarned += gained;
+  else netAccrueEarnings(gained);
   persist();
 }
 let toastTimer = null;
@@ -3387,6 +3393,7 @@ function buySkin(id) {
   equipSkin(id);            // auto-equip on purchase — instant payoff
   toast("Unlocked: " + s.name);
   SFX.coin();
+  netEconomy("spend", { kind: "skin", id, idemKey: idemKey(), continueIndex: 0 });
 }
 
 function equipSkin(id) {
@@ -3395,6 +3402,7 @@ function equipSkin(id) {
   const kind = SKINS.blocks.includes(s) ? "blocks" : SKINS.bg.includes(s) ? "bg" : "orbs";
   equipped[kind] = id;
   persist();
+  netEquip(kind, id);
   if (kind === "bg") applyBackgroundSkin();
   else if (kind === "orbs") applyOrbTheme(s);
   else applyBlockSkin();
@@ -3836,6 +3844,7 @@ function startLevelSpec(spec) {
   continuesUsed = 0;
   disarmPowerup();
   levelScore = 0;
+  runCoinsEarned = 0;
   streak = 0;
   held = null;
   targets = [];
@@ -4022,6 +4031,8 @@ function gauntletOver() {
   const prevBest = P.gauntletBest || 0;
   P.gauntletBest = Math.max(prevBest, levelScore);
   persist();
+  netFlushEarnings();
+  netGauntlet(levelScore);
   const scrim = document.getElementById("end-scrim");
   document.getElementById("end-title").textContent = "Gauntlet over";
   document.getElementById("end-body").innerHTML =
@@ -4186,6 +4197,7 @@ function levelWin() {
     P.dailyRun.lastWin = today;
     P.dailyRun.bestScore = Math.max(P.dailyRun.bestScore || 0, levelScore);
     const reward = firstToday ? 150 : 25;
+    netEconomy("run-earnings", { mode: "daily", coins: reward, idemKey: idemKey() });
     awardCoins(reward);
     celebrateBoard();
     setTimeout(() => showLevelEnd(true, { stars, reward, firstClear: firstToday, best: P.dailyRun.bestScore }), 750);
@@ -4203,7 +4215,10 @@ function levelWin() {
   };
   if (level.id === P.currentLevel) P.currentLevel = level.id + 1;
   P.totals.levelsWon++;
-  awardCoins(reward);                              // persists the save too
+  const runCoins = runCoinsEarned;                 // NET: in-run coins for the server grant
+  runCoinsEarned = 0;
+  netEconomy("level-complete", { level: level.id, stars, score: levelScore, runCoins });
+  awardCoins(reward);                              // optimistic; server balance adopted on reply
   celebrateBoard();                                // gold wave across the board...
   setTimeout(() =>                                 // ...then the results modal
     showLevelEnd(true, { stars, reward, firstClear, best: P.levelResults[level.id].highScore }), 750);
@@ -4435,6 +4450,7 @@ function renderMap() {
       const gift = 150 + z * 50;
       const pu = POWERUPS[(Math.random() * POWERUPS.length) | 0];
       P.items[pu.id] = (P.items[pu.id] || 0) + 1;
+      netEconomy("chest", { zone: z });   // server re-verifies stars + grants
       awardCoins(gift);
       document.getElementById("map-coin-count").textContent = coins;
       renderMap();
@@ -4698,6 +4714,7 @@ function buyPowerup(id) {
   renderPowerupBar();
   toast(pu.name + " +1");
   SFX.coin();
+  netEconomy("spend", { kind: "item", id, idemKey: idemKey(), continueIndex: 0 });
 }
 
 /* =====================================================================
@@ -4732,6 +4749,7 @@ function acceptRescue() {
   if (coins < cost) { toast("Not enough coins"); return; }
   coins -= cost;
   continuesUsed++;
+  netEconomy("spend", { kind: "continue", id: "continue", idemKey: idemKey(), continueIndex: continuesUsed - 1 });
   coinCount.textContent = coins;
   const mapCoins = document.getElementById("map-coin-count");
   if (mapCoins) mapCoins.textContent = coins;
@@ -5098,7 +5116,18 @@ function showChestReward(zoneName, gift, pu) {
 /* =====================================================================
    DAILY BONUS — small login reward, once per calendar day
    ===================================================================== */
-function claimDailyBonus() {
+async function claimDailyBonus() {
+  // NET: online -> the SERVER's clock and streak rules decide (spoof-proof)
+  if (NET.online) {
+    const r = await netEconomy("daily-bonus", {});
+    if (r) {
+      if (r.granted > 0) {
+        const day = r.note && r.note.indexOf("streak:") === 0 ? r.note.slice(7) : null;
+        toast("Daily bonus +" + r.granted + (day && day !== "1" ? " \u00b7 day " + day : ""));
+      }
+      return;
+    }
+  }
   const today = new Date().toDateString();
   if (P.daily.lastClaim === today) return;
   // consecutive days build a streak: 50, 75, 100 ... capped at 200
@@ -5108,6 +5137,205 @@ function claimDailyBonus() {
   const bonus = Math.min(200, DAILY_BONUS + (P.daily.streak - 1) * 25);
   awardCoins(bonus);
   toast("Daily bonus +" + bonus + (P.daily.streak > 1 ? " \u00b7 day " + P.daily.streak : ""));
+}
+
+/* =====================================================================
+   NET SYNC — offline-first backend integration.
+   ---------------------------------------------------------------------
+   The game keeps its localStorage write-through exactly as before, so it
+   plays identically with no server. When the API is reachable:
+     · boot: guest/refresh auth -> GET /api/save -> SERVER WINS for the
+       economy (coins, owned, items, progression, noAds); CLIENT WINS for
+       touch/settings/session (pushed back as an opaque blob).
+     · economy actions fire EVENTS; the server recomputes the grant and
+       returns the authoritative balance, which the client adopts.
+     · offline events queue in localStorage WITH their idempotency keys
+       and drain on reconnect — replays are server-side no-ops.
+   ===================================================================== */
+const NET = {
+  base: (localStorage.getItem("bp_api_base") || "https://block-puzzzle.onrender.com") + "/api",
+  online: false,
+  access: null,
+  playerId: null,
+  queue: [],
+  blobTimer: null,
+  pendingEarn: 0,
+};
+try { NET.queue = JSON.parse(localStorage.getItem("bp_net_queue") || "[]"); } catch (e) {}
+
+function idemKey() {
+  return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+}
+function netSaveQueue() {
+  try { localStorage.setItem("bp_net_queue", JSON.stringify(NET.queue.slice(-200))); } catch (e) {}
+}
+
+async function netFetch(path, opts, retry) {
+  const res = await fetch(NET.base + path, {
+    ...(opts || {}),
+    headers: {
+      "Content-Type": "application/json",
+      ...(NET.access ? { Authorization: "Bearer " + NET.access } : {}),
+      ...((opts && opts.headers) || {}),
+    },
+  });
+  if (res.status === 401 && retry !== false && await netRefresh()) {
+    return netFetch(path, opts, false);
+  }
+  return res;
+}
+
+async function netRefresh() {
+  try {
+    const refresh = localStorage.getItem("bp_refresh");
+    if (!refresh) return false;
+    const res = await fetch(NET.base + "/auth/refresh", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken: refresh }),
+    });
+    if (!res.ok) return false;
+    const pair = await res.json();
+    NET.access = pair.accessToken;
+    NET.playerId = pair.playerId;
+    localStorage.setItem("bp_refresh", pair.refreshToken);
+    return true;
+  } catch (e) { return false; }
+}
+
+/* boot: never blocks or breaks the game — worst case we stay offline */
+async function netBoot() {
+  try {
+    if (!(await netRefresh())) {
+      let deviceKey = localStorage.getItem("bp_device_key");
+      if (!deviceKey) {
+        deviceKey = idemKey() + idemKey() + idemKey();
+        localStorage.setItem("bp_device_key", deviceKey);
+      }
+      const res = await fetch(NET.base + "/auth/guest", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceKey }),
+      });
+      if (!res.ok) throw new Error("guest auth failed");
+      const pair = await res.json();
+      NET.access = pair.accessToken;
+      NET.playerId = pair.playerId;
+      localStorage.setItem("bp_refresh", pair.refreshToken);
+    }
+    NET.online = true;
+    await netDrainQueue();
+    const res = await netFetch("/save");
+    if (res.ok) mergeServerSave(await res.json());
+  } catch (e) {
+    NET.online = false;   // fully offline: identical to the pre-backend game
+  }
+}
+
+/* SERVER WINS for the economy; touch/settings/session stay local. */
+function mergeServerSave(server) {
+  coins = Number(server.coins) || 0;
+  P.coins = coins;
+  if (server.currentLevel) P.currentLevel = server.currentLevel;
+  if (server.levelResults) P.levelResults = server.levelResults;
+  if (Array.isArray(server.owned) && server.owned.length) {
+    P.owned = server.owned;
+    ownedSkins = new Set(P.owned);
+  }
+  if (server.equipped) {
+    P.equipped = { ...P.equipped, ...server.equipped };
+    equipped = { blocks: P.equipped.blocks, bg: P.equipped.bg, orbs: P.equipped.orbs || "orbs_cosmic" };
+  }
+  if (server.items) P.items = { ...P.items, ...server.items };
+  if (server.chests) P.chests = server.chests;
+  if (typeof server.gauntletBest === "number") P.gauntletBest = Math.max(P.gauntletBest || 0, server.gauntletBest);
+  P.noAds = !!server.noAds;
+  persist();
+  // repaint everything the merge may have changed
+  coinCount.textContent = coins;
+  const mapCoins = document.getElementById("map-coin-count");
+  if (mapCoins) mapCoins.textContent = coins;
+  const bs = findSkin(equipped.blocks);
+  if (bs && bs.colors) COLORS = bs.colors.slice();
+  applyBackgroundSkin();
+  applyOrbTheme(findSkin(equipped.orbs));
+  renderPowerupBar();
+  if (document.getElementById("map-screen").classList.contains("open")) openMap();
+}
+
+/* the server's balance is the truth — adopt it whenever it answers */
+function adoptBalance(result) {
+  if (!result || typeof result.coins !== "number") return;
+  coins = result.coins;
+  P.coins = coins;
+  coinCount.textContent = coins;
+  const mapCoins = document.getElementById("map-coin-count");
+  if (mapCoins) mapCoins.textContent = coins;
+  persist();
+}
+
+/* fire an economy event; offline -> queued with its idempotency key */
+async function netEconomy(path, body) {
+  if (!NET.online) {
+    NET.queue.push({ path, body });
+    netSaveQueue();
+    return null;
+  }
+  try {
+    const res = await netFetch("/economy/" + path, { method: "POST", body: JSON.stringify(body) });
+    if (!res.ok) return null;   // 409 replay / rejection: server state arrives at next merge
+    const result = await res.json();
+    adoptBalance(result);
+    return result;
+  } catch (e) {
+    NET.online = false;
+    NET.queue.push({ path, body });
+    netSaveQueue();
+    return null;
+  }
+}
+
+async function netDrainQueue() {
+  while (NET.online && NET.queue.length) {
+    const { path, body } = NET.queue[0];
+    try {
+      const res = await netFetch("/economy/" + path, { method: "POST", body: JSON.stringify(body) });
+      if (res.ok) adoptBalance(await res.json());
+      else if (res.status !== 409 && res.status !== 400) break;  // transient: retry later
+      NET.queue.shift();
+      netSaveQueue();
+    } catch (e) { NET.online = false; break; }
+  }
+}
+
+/* relax/gauntlet in-run coins batch up and flush (journey reports at level end) */
+function netAccrueEarnings(gained) {
+  NET.pendingEarn += gained;
+  if (NET.pendingEarn >= 120) netFlushEarnings();
+}
+function netFlushEarnings() {
+  if (NET.pendingEarn <= 0) return;
+  const amount = Math.min(400, NET.pendingEarn);
+  NET.pendingEarn -= amount;
+  netEconomy("run-earnings", { mode, coins: amount, idemKey: idemKey() });
+}
+
+/* fire-and-forget mirrors (cosmetic equip, gauntlet best, client blob) */
+function netEquip(kind, id) {
+  if (!NET.online) return;
+  netFetch("/save/equip", { method: "POST", body: JSON.stringify({ kind, id }) }).catch(() => {});
+}
+function netGauntlet(score) {
+  if (!NET.online) return;
+  netFetch("/economy/gauntlet-score", { method: "POST", body: JSON.stringify({ score }) }).catch(() => {});
+}
+function netPushBlob() {
+  if (!NET.online) return;
+  clearTimeout(NET.blobTimer);
+  NET.blobTimer = setTimeout(() => {
+    netFetch("/save/client-blob", {
+      method: "PUT",
+      body: JSON.stringify({ blob: { touch: P.touch, settings: P.settings, session: P.session } }),
+    }).catch(() => {});
+  }, 3000);
 }
 
 /* =====================================================================
