@@ -1210,6 +1210,30 @@
     100% { transform: translate(-50%, calc(-50% - 46px)) scale(1); opacity: 0; }
   }
 
+  /* LEVEL BUILD-IN — prefilled blocks "get placed" one by one when a
+     level loads: drop in with a springy overshoot, staggered per cell. */
+  .cell.build-in {
+    animation: buildin .34s cubic-bezier(.34, 1.56, .64, 1) both;
+  }
+  @keyframes buildin {
+    0%   { transform: scale(0) translateY(-16px); opacity: 0; }
+    60%  { transform: scale(1.14) translateY(0);  opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  /* LEVEL-COMPLETE WAVE — surviving blocks pulse gold outward from the
+     board center, then settle back (they never disappear — the board
+     stays intact behind the results modal). */
+  .cell.win-pop {
+    animation: winpop .55s cubic-bezier(.34, 1.56, .64, 1) both;
+  }
+  @keyframes winpop {
+    0%   { transform: scale(1) rotate(0);      filter: brightness(1); }
+    40%  { transform: scale(1.22) rotate(6deg); filter: brightness(2.1);
+           box-shadow: 0 0 18px 4px rgba(255, 215, 0, .75); }
+    100% { transform: scale(1) rotate(0);      filter: brightness(1); }
+  }
+
   /* multi-line clears rattle the whole board */
   .board-wrap.shake { animation: boardshake .3s ease; }
   @keyframes boardshake {
@@ -1452,7 +1476,7 @@
     </div>
   </div>
 
-  <!-- ===== ROTATE POWER-UP CHOOSER ===== -->
+  <!-- ===== SETTINGS MODAL ===== -->
   <div class="scrim" id="settings-scrim">
     <div class="modal">
       <div class="modal-head">
@@ -1497,6 +1521,7 @@
     </div>
   </div>
 
+  <!-- ===== ROTATE POWER-UP CHOOSER ===== -->
   <div class="scrim" id="rotate-scrim">
     <div class="modal rotate-modal">
       <div class="modal-head">
@@ -3837,12 +3862,79 @@ function startLevelSpec(spec) {
   updateStreakBadge();
   updateHUD();
   render();
+  animateBoardBuild();               // prefilled blocks "get placed" one by one
   document.getElementById("map-screen").classList.remove("open");
   requestAnimationFrame(sizeBoard);   // chrome above/below the board changed
   document.body.classList.remove("on-map");
   surgeCharge = 0;
   updateSurgeHUD();
   saveSnapshot();
+}
+
+/* =====================================================================
+   BOARD ANIMATIONS — level build-in + level-complete wave
+   ===================================================================== */
+/* On level load: every prefilled block springs in one by one, bottom
+   rows first, with soft ticks — reads as the level being "set up".
+   Input is blocked until the last block lands. */
+function animateBoardBuild() {
+  const filled = [];
+  for (let r = 0; r < GRID_SIZE; r++)
+    for (let c = 0; c < GRID_SIZE; c++)
+      if (grid[r][c]) filled.push([r, c]);
+  if (!filled.length) return;
+  busy = true;
+  filled.sort((a, b) => (b[0] - a[0]) || (a[1] - b[1]));   // bottom-up, left-right
+  const step = Math.min(40, Math.max(16, Math.round(520 / filled.length)));
+  const tickEvery = Math.max(1, Math.ceil(filled.length / 8));
+  filled.forEach(([r, c], i) => {
+    const el = cellAt(r, c);
+    el.classList.add("build-in");
+    el.style.animationDelay = (i * step) + "ms";
+    if (i % tickEvery === 0) SFX.tick(i * step / 1000);
+  });
+  setTimeout(() => {
+    filled.forEach(([r, c]) => {
+      const el = cellAt(r, c);
+      el.classList.remove("build-in");
+      el.style.animationDelay = "";
+    });
+    busy = false;
+  }, filled.length * step + 380);
+}
+
+/* On level complete: a golden pulse sweeps outward from the board center
+   across every surviving block (plus a few shard bursts and the board
+   glow), then the results modal arrives. Blocks settle back — the board
+   stays intact behind the modal. */
+function celebrateBoard() {
+  const filled = [];
+  for (let r = 0; r < GRID_SIZE; r++)
+    for (let c = 0; c < GRID_SIZE; c++)
+      if (grid[r][c]) filled.push([r, c]);
+  filled.forEach(([r, c]) => {
+    const el = cellAt(r, c);
+    const delay = Math.round(Math.hypot(r - 3.5, c - 3.5) * 32);
+    el.classList.add("win-pop");
+    el.style.animationDelay = delay + "ms";
+    if ((r + c) % 3 === 0) {
+      setTimeout(() => spawnShards(el, grid[r][c] || "#ffd700", 2), delay + 140);
+    }
+  });
+  const wrap = boardEl.parentElement;
+  if (wrap && wrap.classList) {
+    wrap.classList.remove("allclear");
+    void wrap.offsetWidth;
+    wrap.classList.add("allclear");
+    setTimeout(() => wrap.classList.remove("allclear"), 900);
+  }
+  if (filled.length) {
+    setTimeout(() => filled.forEach(([r, c]) => {
+      const el = cellAt(r, c);
+      el.classList.remove("win-pop");
+      el.style.animationDelay = "";
+    }), 1300);
+  }
 }
 
 /* =====================================================================
@@ -4095,7 +4187,8 @@ function levelWin() {
     P.dailyRun.bestScore = Math.max(P.dailyRun.bestScore || 0, levelScore);
     const reward = firstToday ? 150 : 25;
     awardCoins(reward);
-    showLevelEnd(true, { stars, reward, firstClear: firstToday, best: P.dailyRun.bestScore });
+    celebrateBoard();
+    setTimeout(() => showLevelEnd(true, { stars, reward, firstClear: firstToday, best: P.dailyRun.bestScore }), 750);
     return;
   }
 
@@ -4111,7 +4204,9 @@ function levelWin() {
   if (level.id === P.currentLevel) P.currentLevel = level.id + 1;
   P.totals.levelsWon++;
   awardCoins(reward);                              // persists the save too
-  showLevelEnd(true, { stars, reward, firstClear, best: P.levelResults[level.id].highScore });
+  celebrateBoard();                                // gold wave across the board...
+  setTimeout(() =>                                 // ...then the results modal
+    showLevelEnd(true, { stars, reward, firstClear, best: P.levelResults[level.id].highScore }), 750);
 }
 
 function levelFail(reason) {
@@ -4554,6 +4649,7 @@ function applyBomb(r, c) {
 /* Power-up destruction: ice breaks outright, gems are collected, stone and
    normal blocks vanish. No coins, no line/target progress — by design. */
 function destroyCells(cells) {
+  SFX.boom(); haptic(30);
   busy = true;
   let iceBroken = 0, gemsCollected = 0, cratesBroken = 0;
   for (const [r, c] of cells) {
@@ -4743,6 +4839,8 @@ const SFX = {
   win() { [0, 4, 7, 12].forEach((semi, i) => tone(523.25 * Math.pow(2, semi / 12), 0.3, "triangle", 0.24, i * 0.1)); },
   fail() { tone(330, 0.5, "sine", 0.2, 0, 150); },
   coin() { tone(880, 0.07, "square", 0.18); tone(1320, 0.09, "square", 0.16, 0.05); },
+  boom() { tone(95, 0.32, "sine", 0.32, 0, 42); tone(220, 0.18, "sawtooth", 0.1, 0, 70); },
+  tick(when) { tone(480 + Math.random() * 160, 0.045, "triangle", 0.09, when); },
 };
 function haptic(pattern) {
   if (!P.settings || !P.settings.haptics) return;
