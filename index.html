@@ -15,7 +15,7 @@
 
   Everything is in this one file on purpose — read it top to bottom.
   The game LOGIC (pieces, placement, clears, scoring, skins) is plain
-  JS and will survie a port to Phaser / React Native later.
+  JS and will survive a port to Phaser / React Native later.
 
   Tweak these first to change the feel:  GRID_SIZE, PIECES, the COIN_*
   values, STREAK_* values, and the SKINS list with their prices.
@@ -5224,10 +5224,45 @@ async function netBoot() {
     NET.online = true;
     await netDrainQueue();
     const res = await netFetch("/save");
-    if (res.ok) mergeServerSave(await res.json());
+    if (res.ok) mergeServerSave(await netMigrateIfNeeded(await res.json()));
   } catch (e) {
     NET.online = false;   // fully offline: identical to the pre-backend game
   }
+}
+
+
+/* ONE-TIME LEGACY MIGRATION — a player with offline progress meeting a
+   virgin server save pushes their progress UP instead of being wiped by
+   the server-wins merge. The server sanitizes + caps everything and only
+   accepts it while the account has no progress of its own. */
+async function netMigrateIfNeeded(server) {
+  const virgin = (server.currentLevel || 1) <= 1 &&
+    (!server.levelResults || Object.keys(server.levelResults).length === 0);
+  const localProgress = (P.currentLevel || 1) > 1 ||
+    Object.keys(P.levelResults || {}).length > 0 ||
+    (P.coins || 0) > 0 ||
+    (P.owned || []).length > 3;
+  if (!virgin || !localProgress) return server;
+  try {
+    const res = await netFetch("/economy/migrate", {
+      method: "POST",
+      body: JSON.stringify({
+        coins: P.coins || 0,
+        currentLevel: P.currentLevel || 1,
+        levelResults: P.levelResults || {},
+        owned: P.owned || [],
+        items: P.items || {},
+        chests: P.chests || {},
+        gauntletBest: P.gauntletBest || 0,
+      }),
+    });
+    if (res.ok) {
+      toast("Progress synced to your account");
+      const fresh = await netFetch("/save");          // re-read post-migration truth
+      if (fresh.ok) return await fresh.json();
+    }
+  } catch (e) { /* offline blip: merge proceeds; migration retried next boot */ }
+  return server;
 }
 
 /* SERVER WINS for the economy; touch/settings/session stay local. */
