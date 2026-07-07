@@ -3842,6 +3842,7 @@ function startLevelSpec(spec) {
   busy = false;
   rescueOffered = false;
   continuesUsed = 0;
+  ADS.usedContinueThisAttempt = false;
   disarmPowerup();
   levelScore = 0;
   runCoinsEarned = 0;
@@ -4245,6 +4246,7 @@ function levelFail(reason) {
 }
 
 function showLevelEnd(won, info) {
+  adsMaybeInterstitial();
   const title = document.getElementById("end-title");
   const body  = document.getElementById("end-body");
   const btns  = document.getElementById("end-buttons");
@@ -4275,6 +4277,26 @@ function showLevelEnd(won, info) {
     if (info.stars === 3 || level.type === "boss") {
       const modalEl = scrim.querySelector ? scrim.querySelector(".modal") : null;
       if (modalEl) confettiBurst(modalEl);
+    }
+    /* ADS: optional rewarded 2x on journey wins (server recomputes the grant) */
+    if (!level.isDaily && adsAvailable("rewarded") && !adsCapReached("double")) {
+      const dbl = document.createElement("button");
+      dbl.className = "modal-btn primary";
+      dbl.textContent = "2\u00d7 coins \u00b7 ad";
+      dbl.onclick = () => {
+        dbl.disabled = true;
+        adsShowRewarded("double").then(got => {
+          if (!got) { dbl.disabled = false; return; }
+          adsCount("double");
+          dbl.remove();
+          netEconomy("ad-reward", { placement: "double", level: level.id, idemKey: idemKey() });
+          awardCoins(info.reward);          // optimistic; server truth adopted on reply
+          const num = document.getElementById("end-reward-num");
+          if (num) tickUp(num, info.reward * 2, 500);
+          toast("Reward doubled!");
+        });
+      };
+      btns.append(dbl);
     }
     if (level.isDaily) {
       mapBtn.className = "modal-btn primary";   // daily has no "next level"
@@ -4313,6 +4335,8 @@ function showLevelEnd(won, info) {
     } else {
       btns.append(mapBtn, retry);
     }
+    const adCont = adsContinueButton(scrim);          // ADS: free rewarded continue
+    if (adCont) btns.append(adCont);
   }
   scrim.classList.add("open");
 }
@@ -4736,7 +4760,8 @@ function showRescueOffer(reason, ratio) {
   cont.className = "modal-btn primary";
   cont.textContent = "Continue \u00b7 " + continueCost() + " coins";
   cont.onclick = () => { scrim.classList.remove("open"); acceptRescue(); };
-  btns.append(giveUp, cont);
+  const adCont = adsContinueButton(scrim);          // ADS: free rewarded continue
+  if (adCont) btns.append(giveUp, adCont, cont); else btns.append(giveUp, cont);
   scrim.classList.add("open");
 }
 
@@ -4754,6 +4779,11 @@ function acceptRescue() {
   const mapCoins = document.getElementById("map-coin-count");
   if (mapCoins) mapCoins.textContent = coins;
   persist();
+  resumeAttempt();
+}
+
+/* shared attempt-revival used by the paid rescue AND the rewarded-ad continue */
+function resumeAttempt() {
   levelDone = false;
   busy = false;
   if (movesLeft !== null) movesLeft += RESCUE_MOVES;
@@ -4765,7 +4795,7 @@ function acceptRescue() {
   }
   updateHUD();
   render();
-  saveSnapshot();          // the rescued attempt is resumable again
+  saveSnapshot();          // the revived attempt is resumable again
 }
 
 /* =====================================================================
@@ -5137,6 +5167,92 @@ async function claimDailyBonus() {
   const bonus = Math.min(200, DAILY_BONUS + (P.daily.streak - 1) * 25);
   awardCoins(bonus);
   toast("Daily bonus +" + bonus + (P.daily.streak > 1 ? " \u00b7 day " + P.daily.streak : ""));
+}
+
+/* =====================================================================
+   ADS — native AdMob bridge (the Capacitor wrapper injects
+   window.BPAdsBridge = { isReady(type), showRewarded(placement),
+   showInterstitial() }). Pure web build: no bridge -> every entry point
+   is a no-op and no ad UI ever renders, so the game stays identical.
+   Placements:
+     · rewarded "continue"  — free rescue, once per attempt
+     · rewarded "double"    — 2x level reward; server recomputes via
+                              POST /economy/ad-reward (no client amounts)
+     · interstitial         — at level end, throttled by count AND time,
+                              never on daily/boss/tutorial, suppressed
+                              entirely by the noAds entitlement
+   ===================================================================== */
+const ADS = {
+  cfg: {                                  // tuning levers
+    interstitialMinLevels: 3,             // level-ends between interstitials
+    interstitialMinMs: 90000,             // ...and a hard time floor
+    doubleDailyCap: 10,                   // client-side; server enforces too
+    continueDailyCap: 5,
+  },
+  endsSinceInterstitial: 0,
+  lastInterstitialAt: 0,
+  usedContinueThisAttempt: false,
+};
+function adsBridge() { return (typeof window !== "undefined" && window.BPAdsBridge) || null; }
+function adsAvailable(type) {
+  const b = adsBridge();
+  if (!b || typeof b.isReady !== "function") return false;
+  try { if (!b.isReady(type)) return false; } catch (e) { return false; }
+  if (type === "interstitial" && P.noAds) return false;
+  return true;
+}
+/* daily placement counters — client-side politeness; the server re-caps */
+function adsCounts() {
+  let c = {};
+  try { c = JSON.parse(localStorage.getItem("bp_ad_counts") || "{}"); } catch (e) {}
+  const today = new Date().toDateString();
+  return c.date === today ? c : { date: today };
+}
+function adsCapReached(kind) {
+  const cap = kind === "double" ? ADS.cfg.doubleDailyCap : ADS.cfg.continueDailyCap;
+  return (adsCounts()[kind] || 0) >= cap;
+}
+function adsCount(kind) {
+  const c = adsCounts();
+  c[kind] = (c[kind] || 0) + 1;
+  try { localStorage.setItem("bp_ad_counts", JSON.stringify(c)); } catch (e) {}
+}
+function adsShowRewarded(placement) {
+  const b = adsBridge();
+  if (!b || typeof b.showRewarded !== "function") return Promise.resolve(false);
+  try { return Promise.resolve(b.showRewarded(placement)).then(v => !!v, () => false); }
+  catch (e) { return Promise.resolve(false); }
+}
+/* interstitial gate — called once per level-end modal. Counts EVERY end
+   (spacing feels even) but only ever shows on plain journey levels. */
+function adsMaybeInterstitial() {
+  ADS.endsSinceInterstitial++;
+  if (!adsAvailable("interstitial")) return;
+  if (level && (level.isDaily || level.type === "boss" || level.type === "tutorial")) return;
+  if (ADS.endsSinceInterstitial <= ADS.cfg.interstitialMinLevels) return;
+  if (Date.now() - ADS.lastInterstitialAt < ADS.cfg.interstitialMinMs) return;
+  ADS.endsSinceInterstitial = 0;
+  ADS.lastInterstitialAt = Date.now();
+  const b = adsBridge();
+  try { b.showInterstitial && b.showInterstitial(); } catch (e) {}
+}
+/* shared "free continue" button for the fail modal + the rescue offer */
+function adsContinueButton(scrim) {
+  if (!adsAvailable("rewarded") || ADS.usedContinueThisAttempt || adsCapReached("continue")) return null;
+  const b = document.createElement("button");
+  b.className = "modal-btn primary";
+  b.textContent = "Free continue \u00b7 ad";
+  b.onclick = () => {
+    b.disabled = true;
+    adsShowRewarded("continue").then(got => {
+      if (!got) { b.disabled = false; return; }
+      ADS.usedContinueThisAttempt = true;
+      adsCount("continue");
+      scrim.classList.remove("open");
+      resumeAttempt();
+    });
+  };
+  return b;
 }
 
 /* =====================================================================
