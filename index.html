@@ -755,6 +755,23 @@
   /* ---- MULTI-OBJECTIVE ROWS ----------------------------------------- */
   .objective { flex-direction: column; align-items: stretch; }
   #obj-rows { display: flex; flex-direction: column; gap: 8px; }
+  /* JOURNEY objectives = compact labeled chips in a wrapping row: the
+     panel stays ~one row tall however many objectives a level has, so
+     sizeBoard() stops shrinking the grid to make room for the list. */
+  #obj-rows.chips { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+  .obj-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px;
+    background: rgba(0, 0, 0, .25);
+    border: 1px solid rgba(255, 255, 255, .08);
+    border-radius: 999px;
+    font-size: 12.5px; font-weight: 600;
+    color: var(--text);
+  }
+  .obj-chip .pip { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .obj-chip .chip-name { color: var(--text-dim); }
+  .obj-chip .prog { color: var(--mint); margin-left: 0; }
+  .obj-chip.done { opacity: .5; }
   .obj-row { display: flex; align-items: center; gap: 11px; }
   .obj-row.done { opacity: .5; }
   .obj-row.done .prog { color: var(--text-dim); }
@@ -1518,6 +1535,7 @@
       <div class="modal-btn-row" style="margin-top:16px;">
         <button class="modal-btn secondary" id="settings-reset">Reset touch feel</button>
       </div>
+      <p class="modal-sub" id="build-stamp" style="margin:12px 0 0;text-align:center;"></p>
     </div>
   </div>
 
@@ -1544,6 +1562,7 @@
 
 <script>
 "use strict";
+const BUILD = "chips-2";   // bump on every Pages deploy; visible in Settings
 
 /* =====================================================================
    SECTION INDEX  (search a title to jump to it — no line numbers, so it
@@ -3716,11 +3735,11 @@ function renderSummary() {
    HUD — mode title, moves pill, objective rows
    ===================================================================== */
 const OBJ_META = {
-  targets: { label: "Clear glowing tiles", color: "var(--mint)" },
-  gems:    { label: "Collect gems",        color: "#5db8ff" },
-  ice:     { label: "Break the ice",       color: "#9fd0f0" },
-  crates:  { label: "Break the crates",    color: "#c98e55" },
-  lines:   { label: "Clear lines",         color: "var(--gold)" },
+  targets: { label: "Clear glowing tiles", short: "Tiles",  color: "var(--mint)" },
+  gems:    { label: "Collect gems",        short: "Gems",   color: "#5db8ff" },
+  ice:     { label: "Break the ice",       short: "Ice",    color: "#9fd0f0" },
+  crates:  { label: "Break the crates",    short: "Crates", color: "#c98e55" },
+  lines:   { label: "Clear lines",         short: "Lines",  color: "var(--gold)" },
 };
 
 function updateHUD() {
@@ -3752,6 +3771,7 @@ function updateObjectiveHUD() {
       chip.title = meta.label;
       chip.innerHTML =
         `<span class="pip" style="background:${meta.color};box-shadow:0 0 8px ${meta.color};"></span>` +
+        `<span class="chip-name">${meta.short}</span>` +
         `<span class="prog">` + (done ? "✓" : o.progress + "/" + o.target) + `</span>`;
       objRows.appendChild(chip);
     }
@@ -4638,6 +4658,8 @@ function renderSettings() {
   hap.setAttribute("aria-checked", P.settings.haptics ? "true" : "false");
 }
 function openSettings() {
+  const stamp = document.getElementById("build-stamp");
+  if (stamp) stamp.textContent = "build " + BUILD;
   renderSettings();
   document.getElementById("settings-scrim").classList.add("open");
 }
