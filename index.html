@@ -3741,19 +3741,22 @@ function updateHUD() {
 function updateObjectiveHUD() {
   objRows.innerHTML = "";
   if (mode === "journey") {
+    // chips, not rows: constant panel height for any objective count (the
+    // full labels live in the level-intro modal; pips are color-keyed)
+    objRows.classList.add("chips");
     for (const o of objectives) {
       const meta = OBJ_META[o.kind];
-      const row = document.createElement("div");
-      row.className = "obj-row" + (o.progress >= o.target ? " done" : "");
-      row.innerHTML =
-        `<div class="pip" style="background:${meta.color};box-shadow:0 0 12px ${meta.color};"></div>` +
-        `<div class="label"><b>${meta.label}</b></div>` +
-        `<div class="prog">` +
-        (o.progress >= o.target ? "✓" : o.progress + " / " + o.target) +
-        `</div>`;
-      objRows.appendChild(row);
+      const done = o.progress >= o.target;
+      const chip = document.createElement("div");
+      chip.className = "obj-chip" + (done ? " done" : "");
+      chip.title = meta.label;
+      chip.innerHTML =
+        `<span class="pip" style="background:${meta.color};box-shadow:0 0 8px ${meta.color};"></span>` +
+        `<span class="prog">` + (done ? "✓" : o.progress + "/" + o.target) + `</span>`;
+      objRows.appendChild(chip);
     }
   } else {
+    objRows.classList.remove("chips");
     const row = document.createElement("div");
     row.className = "obj-row";
     row.innerHTML =
