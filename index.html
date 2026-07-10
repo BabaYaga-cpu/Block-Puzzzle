@@ -3422,7 +3422,7 @@ let shopSub = "blocks";    // "blocks" | "bg" | "orbs"
 let shopBuilt = false;
 let shopViewKey = null;
 
-function shopItems() { return shopCat === "power" ? POWERUPS : SKINS[shopSub]; }
+function shopItems() { return shopCat === "power" ? POWERUPS : shopCat === "store" ? IAP_PRODUCTS : SKINS[shopSub]; }
 function shopSubLabel() {
   return shopSub === "blocks" ? "Recolours your pieces"
        : shopSub === "bg"     ? "Recolours the board & backdrop"
@@ -3447,6 +3447,26 @@ function shopPreview(it) {
 function shopCard(it) {
   const card = document.createElement("article");
   card.className = "shx-card";
+
+  if (shopCat === "store") {
+    const owned = it.id === "no_ads" && P.noAds;
+    card.innerHTML =
+      '<div class="shx-icon">' + it.icon + '</div>' +
+      '<h3 class="shx-name">' + it.name + '</h3>' +
+      '<p class="shx-desc">' + it.desc + '</p>' +
+      '<div class="shx-grow"></div>';
+    const btn = document.createElement("button");
+    if (owned) {
+      btn.className = "shx-btn equipped"; btn.textContent = "\u2713 Owned"; btn.disabled = true;
+    } else {
+      btn.className = "shx-btn price";
+      btn.textContent = iapPending ? "\u2026" : (iapPrices[it.id] || "Buy");
+      btn.disabled = iapPending;
+      btn.addEventListener("click", () => iapOrder(it.id));
+    }
+    card.appendChild(btn);
+    return card;
+  }
 
   if (shopCat === "power") {
     const owned = P.items[it.id] || 0;
@@ -3522,6 +3542,7 @@ function buildShopShell() {
       '<span class="shx-tab-ind" id="shx-tab-ind"></span>' +
       '<button class="shx-tab" data-cat="power">⚡ Power-ups</button>' +
       '<button class="shx-tab" data-cat="cosmetic">✨ Cosmetics</button>' +
+      (iapAvailable() ? '<button class="shx-tab" data-cat="store">💎 Store</button>' : '') +
     '</div>' +
     '<div class="shx-subtabs" id="shx-subtabs">' +
       '<span class="shx-sub-ind" id="shx-sub-ind"></span>' +
@@ -3590,7 +3611,10 @@ function renderShop() {
   if (coinEl) coinEl.textContent = coins;
 
   shopBody.querySelectorAll(".shx-tab").forEach(t => t.classList.toggle("active", t.dataset.cat === shopCat));
-  document.getElementById("shx-tab-ind").style.transform = shopCat === "cosmetic" ? "translateX(100%)" : "translateX(0)";
+  const shopCats = iapAvailable() ? ["power", "cosmetic", "store"] : ["power", "cosmetic"];
+  const tabInd = document.getElementById("shx-tab-ind");
+  tabInd.style.width = (100 / shopCats.length) + "%";
+  tabInd.style.transform = "translateX(" + (Math.max(0, shopCats.indexOf(shopCat)) * 100) + "%)";
 
   const subs = document.getElementById("shx-subtabs");
   subs.classList.toggle("show", shopCat === "cosmetic");
@@ -5254,6 +5278,77 @@ function adsContinueButton(scrim) {
   };
   return b;
 }
+
+/* =====================================================================
+   IAP — real-money purchases (the wrapper injects window.BPIapBridge =
+   { getProducts(ids)->Promise<[{id,title,price}]>,
+     order(id)->Promise<{ok}|null> }). Purchase completion (fresh AND
+   redelivered-after-crash) arrives via window.bpIapDeliver, which verifies
+   with the server and must return true ONLY when granted — the bridge
+   finishes/consumes the store transaction on true. No bridge = no Store
+   tab, web build unchanged. Prices come from the store (localized);
+   amounts/recipes are server truth (Catalog + product grants).
+   ===================================================================== */
+const IAP_PRODUCTS = [
+  { id: "coins_small",    icon: "\ud83e\ude99", name: "Pouch of Coins",  desc: "A quick coin top-up." },
+  { id: "coins_medium",   icon: "\ud83d\udcb0", name: "Bag of Coins",    desc: "The popular choice." },
+  { id: "coins_large",    icon: "\ud83c\udfc6", name: "Chest of Coins",  desc: "Best value pile." },
+  { id: "no_ads",         icon: "\ud83d\udeab", name: "Remove Ads",      desc: "No interstitials, ever. Rewarded ads stay optional." },
+  { id: "starter_pack",   icon: "\ud83c\udf81", name: "Starter Pack",    desc: "Coins + power-ups to get going." },
+  { id: "premium_bundle", icon: "\ud83d\udc51", name: "Premium Bundle",  desc: "The lot, one go." },
+];
+let iapPrices = {};        // productId -> localized price string from the store
+let iapPending = false;    // one order at a time; buttons disabled meanwhile
+
+function iapBridge() { return (typeof window !== "undefined" && window.BPIapBridge) || null; }
+function iapAvailable() { return !!iapBridge(); }
+
+/* wrapper calls this once the billing client is ready */
+function iapInit() {
+  const b = iapBridge();
+  if (!b || typeof b.getProducts !== "function") return;
+  Promise.resolve(b.getProducts(IAP_PRODUCTS.map(p => p.id))).then(list => {
+    (list || []).forEach(p => { if (p && p.id && p.price) iapPrices[p.id] = p.price; });
+    shopBuilt = false;     // shell may need the Store tab now
+    if (document.getElementById("shop-scrim").classList.contains("open")) renderShop();
+  }, () => {});
+}
+if (typeof window !== "undefined") window.bpIapBridgeReady = iapInit;
+
+function iapOrder(id) {
+  const b = iapBridge();
+  if (!b || iapPending) return;
+  if (!NET.online) { toast("Connect to the internet to purchase"); return; }
+  iapPending = true;
+  renderShop();
+  Promise.resolve(b.order(id)).catch(() => null).then(() => {
+    // deliver() usually lands first; this is the cancelled/failed cleanup
+    setTimeout(() => { if (iapPending) { iapPending = false; renderShop(); } }, 1500);
+  });
+}
+
+/* verify with the server; true = granted (bridge may finish/consume) */
+function bpIapDeliver(productId, purchaseToken) {
+  if (!NET.online || !purchaseToken) return Promise.resolve(false);   // retried next launch
+  return netFetch("/purchases/verify", {
+    method: "POST",
+    body: JSON.stringify({ store: "google", productId, receipt: purchaseToken }),
+  }).then(async res => {
+    if (!res.ok) { iapPending = false; renderShop(); return false; }
+    const r = await res.json();
+    const okStatus = r.status === "granted" || r.status === "duplicate";
+    if (okStatus) {
+      if (typeof r.coins === "number") adoptBalance(r);
+      P.noAds = !!r.noAds;
+      persist();
+      if (r.status === "granted") toast("Purchase complete!");
+    }
+    iapPending = false;
+    renderShop();
+    return okStatus;
+  }).catch(() => { iapPending = false; return false; });
+}
+if (typeof window !== "undefined") window.bpIapDeliver = bpIapDeliver;
 
 /* =====================================================================
    NATIVE BACK — the wrapper's back-button listener calls
