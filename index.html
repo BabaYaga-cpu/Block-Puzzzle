@@ -901,17 +901,25 @@
     background: #f06d4e; color: #2a130d;
   }
   .map-node.boss .node-type { background: #c45dff; color: #23113a; }
+  /* Stars sit in their own dark pill so they read on ANY backdrop —
+     gradient zones or full-art map images alike. */
   .map-stars {
     position: absolute;
-    width: 80px; margin-left: -40px;
+    transform: translateX(-50%);
+    padding: 2px 9px;
     text-align: center;
     font-size: 12px; letter-spacing: 2px;
     color: var(--gold);
-    text-shadow: 0 0 6px rgba(224,169,96,.6);
+    background: rgba(10, 12, 20, .74);
+    border: 1px solid rgba(224, 169, 96, .45);
+    border-radius: 999px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .5);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, .9);
+    white-space: nowrap;
     z-index: 2;
     pointer-events: none;
   }
-  .map-stars .off { color: #4a4036; text-shadow: none; }
+  .map-stars .off { color: rgba(255, 255, 255, .28); text-shadow: none; }
   .map-dot {
     position: absolute;
     width: 7px; height: 7px; margin-left: -3.5px;
@@ -919,11 +927,102 @@
     background: var(--line);
     z-index: 1;
   }
+  /* One authoritative route, drawn from the exact same coordinates as the
+     level nodes. This prevents artwork seams from breaking the journey and
+     guarantees every node is centred on the playable path. */
+  .map-route {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    overflow: visible; pointer-events: none;
+    z-index: 1;
+  }
+  .map-route-shadow {
+    fill: none; stroke: rgba(8,10,17,.55); stroke-width: 9;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .map-route-line {
+    fill: none; stroke: rgba(245,190,94,.9); stroke-width: 3.5;
+    stroke-linecap: round; stroke-linejoin: round;
+    stroke-dasharray: 2 15;
+    filter: drop-shadow(0 0 5px rgba(242,170,65,.75));
+  }
+  .map-route-glow {
+    fill: none; stroke: rgba(255,225,155,.18); stroke-width: 8;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .map-dot { display: none; }
+  /* One continuous artwork per 50-level world, spanning its five bands.
+     cover = no stretching whatever the source aspect; the wash bands and
+     world gates paint on top. z-index below bands (bands are z0 but appended
+     later -> paint above), below route/nodes. */
+  .world-art {
+    position: absolute; left: 0; right: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
   /* ---- zone backdrop layers (behind dots + nodes) ---- */
   .map-zone {
     position: absolute; left: 0; right: 0;
     z-index: 0;
     pointer-events: none;
+    overflow: hidden;
+  }
+  .map-zone::before,
+  .map-zone::after {
+    content: ""; position: absolute; pointer-events: none;
+    opacity: .16;
+  }
+  /* Large, low-contrast silhouettes give each 50-level world its own
+     identity while leaving the live level nodes completely readable. */
+  .map-zone.world-ember::before {
+    width: 54%; height: 34%; left: -15%; bottom: 7%;
+    background: linear-gradient(145deg, transparent 0 38%, #090d16 39% 73%, transparent 74%);
+    filter: drop-shadow(190px -35px 0 rgba(9,13,22,.78));
+  }
+  .map-zone.world-ember::after {
+    width: 120px; height: 210px; right: -26px; bottom: 12%;
+    border: 13px solid rgba(224,116,52,.12); border-radius: 55% 55% 12% 12%;
+    box-shadow: -335px -125px 0 -8px rgba(224,116,52,.08);
+  }
+  .map-zone.world-crystal::before {
+    width: 105px; height: 210px; left: -24px; bottom: 9%;
+    background: linear-gradient(145deg, rgba(112,229,255,.28), rgba(118,73,255,.07));
+    clip-path: polygon(50% 0,100% 69%,72% 100%,28% 100%,0 69%);
+    filter: drop-shadow(365px -95px 0 rgba(142,91,255,.16));
+  }
+  .map-zone.world-crystal::after {
+    inset: 0;
+    background: linear-gradient(118deg, transparent 20%, rgba(92,235,255,.06) 42%, transparent 58%);
+  }
+  .map-zone.world-clockwork::before {
+    width: 190px; height: 190px; right: -75px; bottom: 10%;
+    border: 18px dotted rgba(229,174,86,.13); border-radius: 50%;
+    box-shadow: -365px -130px 0 -38px rgba(229,174,86,.1);
+  }
+  .map-zone.world-clockwork::after {
+    width: 72%; height: 16%; left: -16%; bottom: 4%;
+    border-radius: 50%; background: rgba(210,232,244,.08);
+    filter: blur(18px); box-shadow: 260px -80px 0 rgba(210,232,244,.06);
+  }
+  /* WORLD GATE — a dissolve strip laid over every 50-level world join so
+     the two artworks (or gradient skies) melt into each other instead of
+     butting edges. Fixes the hard fades at 50/51 and 100/101. */
+  .world-gate {
+    position: absolute; left: 0; right: 0;
+    height: 130px;
+    z-index: 1;
+    pointer-events: none;
+    display: flex; align-items: center; justify-content: center;
+    filter: blur(1.5px);
+  }
+  .world-gate-line {
+    display: block;
+    width: 76%; height: 2px; border-radius: 2px;
+    opacity: .85;
+    filter: blur(.5px);
   }
   .zone-deco {
     position: absolute;
@@ -999,6 +1098,35 @@
     flex: none;
   }
   .icon.big { width: 1em; height: 1em; }   /* parent sets a large font-size */
+
+  /* ---- RANKS (leaderboards) ------------------------------------------ */
+  .rk-tabs { display: flex; gap: 6px; margin: 4px 0 12px; }
+  .rk-tab {
+    flex: 1; padding: 9px 4px;
+    background: rgba(0,0,0,.28); border: 1px solid var(--line); border-radius: 11px;
+    color: var(--text-dim); font: inherit; font-weight: 700; font-size: 12.5px;
+    cursor: pointer;
+  }
+  .rk-tab.on { color: var(--text); border-color: var(--gold); }
+  .rk-list { display: flex; flex-direction: column; gap: 4px; min-height: 180px; }
+  .rk-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 11px;
+    background: rgba(0,0,0,.22); border-radius: 10px;
+    font-size: 13.5px;
+  }
+  .rk-row.me { border: 1px solid var(--gold); background: rgba(224,169,96,.1); }
+  .rk-rank { flex: none; width: 26px; text-align: center; font-weight: 800; color: var(--text-dim); }
+  .rk-rank.r1 { color: #ffd700; } .rk-rank.r2 { color: #c9ccd6; } .rk-rank.r3 { color: #cd8a4e; }
+  .rk-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .rk-score { flex: none; font-weight: 700; color: var(--mint); }
+  .rk-sub { font-size: 12px; color: var(--text-dim); text-align: center; margin: 10px 0 0; }
+  .rk-name-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .rk-name-row input {
+    flex: 1; min-width: 0;
+    background: rgba(0,0,0,.3); border: 1px solid var(--line); border-radius: 11px;
+    color: var(--text); font: inherit; font-weight: 600; padding: 10px 13px;
+  }
 
   /* ---- INVITE (referrals) ------------------------------------------- */
   .invite-banner {
@@ -1404,7 +1532,7 @@
   .map-screen {
     background: linear-gradient(180deg, rgba(15, 23, 42, .5), rgba(15, 23, 42, .72));
   }
-  .map-zone { opacity: .82; }
+  .map-zone { opacity: 1; }
   /* The map wash is translucent so the ORBS glow through — but the game
      screen sits behind it in the DOM and was ghosting through too. While
      the map is open, hide everything except the map itself, modals, fx
@@ -1495,6 +1623,7 @@
       <button class="iconbtn" id="map-relax">Relax</button>
       <button class="iconbtn" id="map-shop">Shop</button>
       <button class="iconbtn" id="map-stats">Stats</button>
+      <button class="iconbtn" id="map-ranks">Ranks</button>
       <button class="iconbtn" id="map-settings">Settings</button>
     </div>
   </div>
@@ -1594,6 +1723,27 @@
     </div>
   </div>
 
+  <!-- ===== RANKS / LEADERBOARDS ===== -->
+  <div class="scrim" id="ranks-scrim">
+    <div class="modal">
+      <div class="modal-head">
+        <h2>Ranks</h2>
+        <button class="close" data-close="ranks-scrim">&times;</button>
+      </div>
+      <div class="rk-name-row">
+        <input id="rk-name-input" maxlength="16" placeholder="Pick a display name" autocomplete="off">
+        <button class="modal-btn primary" id="rk-name-save" style="flex:0 0 auto;">Save</button>
+      </div>
+      <div class="rk-tabs">
+        <button class="rk-tab on" data-board="daily">Daily</button>
+        <button class="rk-tab" data-board="gauntlet">Gauntlet</button>
+        <button class="rk-tab" data-board="friends">Friends</button>
+      </div>
+      <div class="rk-list" id="rk-list"></div>
+      <p class="rk-sub" id="rk-sub"></p>
+    </div>
+  </div>
+
   <!-- ===== INVITE / REFERRALS ===== -->
   <div class="scrim" id="invite-scrim">
     <div class="modal">
@@ -1660,13 +1810,14 @@ const ICON_PATHS = {
   orbs:    '<circle cx="8" cy="15" r="4.5"/><circle cx="15.5" cy="8.5" r="3.5"/><circle cx="17.5" cy="16.5" r="2"/>',
   gem:     '<path d="M7 3.5h10l4.5 6L12 21 2.5 9.5z"/><path d="M2.5 9.5h19M12 21L8.5 9.5 12 3.5l3.5 6z"/>',
   gift:    '<rect x="4" y="11" width="16" height="9.5" rx="2"/><path d="M3 7.5h18v3.5H3z"/><path d="M12 7.5V20.5"/><path d="M12 7.5C11 3.5 5.5 3.5 6.5 6.5c.7 2 3.5 1 5.5 1M12 7.5c1-4 6.5-4 5.5-1-.7 2-3.5 1-5.5 1"/>',
+  trophy:  '<path d="M7 3.5h10v5a5 5 0 0 1-10 0z"/><path d="M7 5H3.5v1.5A3.5 3.5 0 0 0 7 10M17 5h3.5v1.5A3.5 3.5 0 0 1 17 10"/><path d="M12 13.5V17M8.5 20.5h7M10 17h4"/>',
   gear:    '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/>',
 };
 function icon(name, cls) {
   return '<svg class="icon' + (cls ? " " + cls : "") + '" viewBox="0 0 24 24" aria-hidden="true">' +
     (ICON_PATHS[name] || "") + "</svg>";
 }
-const BUILD = "icons-1";   // bump on every Pages deploy; visible in Settings
+const BUILD = "ranks-1";
 
 /* =====================================================================
    SECTION INDEX  (search a title to jump to it — no line numbers, so it
@@ -2396,6 +2547,7 @@ function bindUI() {
   });
   document.getElementById("map-settings").addEventListener("click", openSettings);
   bindInviteUI();
+  bindRanksUI();
   document.getElementById("set-sound").addEventListener("click", () => {
     P.settings.sound = !P.settings.sound; persist(); renderSettings();
     if (P.settings.sound) { initAudio(); SFX.place(); }   // instant audible confirmation
@@ -4351,6 +4503,7 @@ function levelWin() {
     P.dailyRun.bestScore = Math.max(P.dailyRun.bestScore || 0, levelScore);
     const reward = firstToday ? 150 : 25;
     netEconomy("run-earnings", { mode: "daily", coins: reward, idemKey: idemKey() });
+    netEconomy("daily-run", { score: levelScore, idemKey: idemKey() });   // leaderboard entry
     awardCoins(reward);
     celebrateBoard();
     setTimeout(() => showLevelEnd(true, { stars, reward, firstClear: firstToday, best: P.dailyRun.bestScore }), 750);
@@ -4518,16 +4671,93 @@ function openMap() {
    name, sky and scenery, saga-map style. Cycles forever, so the
    procedurally infinite levels always have a themed backdrop. */
 const ZONE_SIZE = 10;
+// (WORLD_ART files live in the Pages repo /assets — until they exist the
+// bands gracefully fall back to their gradient skies.)
+const WORLD_ART = {
+  ember: "assets/map-ember.webp",
+  crystal: "assets/map-crystal.webp",
+  clockwork: "assets/map-clockwork.webp"
+};
 const ZONES = [
-  { name: "Ember Meadow",   sky: "#2a1f15", glow: "#e0a960" },
-  { name: "Frost Fields",   sky: "#152230", glow: "#8fc3e8" },
-  { name: "Verdant Woods",  sky: "#16261a", glow: "#9caf88" },
-  { name: "Twilight Peaks", sky: "#221a30", glow: "#b98ae6" },
-  { name: "Golden Dunes",   sky: "#2b2310", glow: "#ffd97a" },
-  { name: "Midnight Tides", sky: "#0f1c28", glow: "#5db8ff" },
+  /* Five connected regions per art world = a major visual change every
+     50 levels. Neighbouring shades make each boundary fade naturally. */
+  { name:"Ember Meadow",  sky:"#241812", glow:"#f0a04b", world:"ember" },
+  { name:"Lantern Vale",  sky:"#291a13", glow:"#ffb55d", world:"ember" },
+  { name:"Cinder Falls",  sky:"#25151a", glow:"#f07845", world:"ember" },
+  { name:"Autumn Ruins",  sky:"#20151a", glow:"#dc8747", world:"ember" },
+  { name:"Sunset Crown",  sky:"#261711", glow:"#ffc06a", world:"ember" },
+
+  { name:"Crystal Gate",  sky:"#101a35", glow:"#62dbff", world:"crystal" },
+  { name:"Azure Chasm",   sky:"#11183b", glow:"#69bfff", world:"crystal" },
+  { name:"Violet Reach",  sky:"#17133a", glow:"#a77bff", world:"crystal" },
+  { name:"Aurora Falls",  sky:"#101c3d", glow:"#69f0dc", world:"crystal" },
+  { name:"Starforge",     sky:"#151136", glow:"#c48cff", world:"crystal" },
+
+  { name:"Cloud Foundry", sky:"#17283a", glow:"#e9b65d", world:"clockwork" },
+  { name:"Brass Gardens", sky:"#1d2934", glow:"#f0c46e", world:"clockwork" },
+  { name:"Gearwind Pass", sky:"#162638", glow:"#67d8d1", world:"clockwork" },
+  { name:"Aether Docks",  sky:"#182c42", glow:"#8fe7e2", world:"clockwork" },
+  { name:"Sky Citadel",   sky:"#1b263b", glow:"#ffd47d", world:"clockwork" },
 ];
 const zoneFor = n => ZONES[Math.floor((n - 1) / ZONE_SIZE) % ZONES.length];
 const CHEST_STARS = 15;   // stars needed inside a zone to open its chest
+
+/* Hand-authored horizontal routes for each illustrated world. Values are
+   percentages across the artwork, ordered from the lowest to highest level
+   in each 10-level panel. Unlike the old sine wave, these follow the stone
+   road, floating platforms and mechanical bridges visible in the art. */
+const WORLD_ROUTES = {
+  ember: [
+    [50,57,54,38,61,63,39,62,64,60],
+    [50,50,50,53,55,54,62,71,61,50],
+    [50,51,55,51,61,46,51,62,55,50],
+    [50,50,50,53,55,54,62,71,61,50],
+    [50,51,55,51,61,46,51,62,55,50]
+  ],
+  crystal: [
+    [50,51,43,55,35,50,60,57,45,50],
+    [50,49,62,50,60,50,57,48,45,50],
+    [50,51,43,55,35,50,60,57,45,50],
+    [50,49,62,50,60,50,57,48,45,50],
+    [50,51,43,55,35,50,60,57,45,50]
+  ],
+  clockwork: [
+    [55,59,66,49,53,41,60,50,51,50],
+    [49,55,49,60,50,46,55,45,45,50],
+    [55,59,66,49,53,41,60,50,51,50],
+    [49,55,49,60,50,46,55,45,45,50],
+    [55,59,66,49,53,41,60,50,51,50]
+  ]
+};
+
+function mapXForLevel(n) {
+  const zoneIndex = Math.floor((n - 1) / ZONE_SIZE);
+  const zone = ZONES[zoneIndex % ZONES.length];
+  const panel = zoneIndex % 5;
+  const step = (n - 1) % ZONE_SIZE;
+  return WORLD_ROUTES[zone.world][panel][step];
+}
+
+/* Smooth Catmull-Rom spline converted to cubic Béziers. Because this consumes
+   xFor/yFor directly, connector and nodes can never drift apart. */
+function smoothMapRoute(points) {
+  if (points.length < 2) return "";
+  let d = `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+  }
+  return d;
+}
+
+
 
 function renderMap() {
   const path = document.getElementById("map-path");
@@ -4537,8 +4767,34 @@ function renderMap() {
   const maxNode = Math.max(P.currentLevel + 14, 110);
   const H = maxNode * NODE_SPACING + 160;
   path.style.height = H + "px";
-  const xFor = n => 50 + Math.sin(n * 0.85) * 26;            // % across
+  const xFor = n => mapXForLevel(Math.max(1, n));             // % across
   const yFor = n => H - 110 - (n - 1) * NODE_SPACING;        // px from top
+
+  /* ---- continuous world artwork: one cover layer per 50-level world ---- */
+  {
+    const worldsSeen = {};
+    for (let z = 0; z < Math.ceil(maxNode / ZONE_SIZE); z++) {
+      const w = ZONES[z % ZONES.length].world;
+      (worldsSeen[w + ":" + Math.floor(z / 5)] ??= []).push(z);
+    }
+    const boundary = z => {
+      const lastL = (z + 1) * ZONE_SIZE;
+      return lastL >= maxNode ? 0 : (yFor(lastL) + yFor(lastL + 1)) / 2 + 28;
+    };
+    for (const key in worldsSeen) {
+      const zs = worldsSeen[key];
+      const world = key.split(":")[0];
+      const topY = boundary(zs[zs.length - 1]);
+      const bottomY = zs[0] === 0 ? H : boundary(zs[0] - 1);
+      const art = document.createElement("div");
+      art.className = "world-art";
+      art.style.top = topY + "px";
+      art.style.height = (bottomY - topY) + "px";
+      art.style.backgroundImage = `url("${WORLD_ART[world]}"), ` +
+        `linear-gradient(180deg, ${ZONES[zs[zs.length - 1] % ZONES.length].sky}, ${ZONES[zs[0] % ZONES.length].sky})`;
+      path.appendChild(art);
+    }
+  }
 
   /* ---- zone backdrop: sky bands, glow, scenery dots, name banners ---- */
   // boundary between zone z and z+1 sits halfway between its last node
@@ -4554,15 +4810,34 @@ function renderMap() {
     const bottom = z === 0 ? H : boundaryY(z - 1);
     const top = boundaryY(z);
     const band = document.createElement("div");
-    band.className = "map-zone";
+    band.className = "map-zone world-" + zone.world;
     band.style.top = top + "px";
     band.style.height = (bottom - top) + "px";
-    // blend into the NEXT zone's sky at the band's top edge so zone
-    // changes read as a horizon, not a hard seam
-    band.style.background =
-      `radial-gradient(120% 55% at 50% 100%, ${zone.glow}22 0%, transparent 60%),` +
-      `linear-gradient(180deg, ${next.sky} 0%, ${zone.sky} 18%, ${zone.sky} 100%)`;
+    // Bands carry only the translucent sky washes now — the artwork lives
+    // on one continuous .world-art layer per 50-level world (added below),
+    // so there are no within-world seams and any art aspect works (cover).
+    band.style.backgroundImage =
+      `linear-gradient(180deg, ${next.sky}59 0%, transparent 14%, transparent 86%, ${zone.sky}59 100%),` +
+      `radial-gradient(120% 55% at 50% 100%, ${zone.glow}1f 0%, transparent 62%)`;
+    band.style.backgroundRepeat = "no-repeat";
     path.appendChild(band);
+
+    // WORLD GATE: lay a dissolve strip across every 50-level world join
+    // (the band above belongs to a different artwork) so the two worlds
+    // melt together instead of meeting at a hard seam.
+    const nextZone = ZONES[(z + 1) % ZONES.length];
+    if (z < zoneCount - 1 && nextZone.world !== zone.world) {
+      const gate = document.createElement("div");
+      gate.className = "world-gate";
+      gate.style.top = (top - 65) + "px";
+      gate.style.background =
+        `linear-gradient(180deg, transparent 0%, ${nextZone.sky}e6 32%, ` +
+        `${nextZone.sky} 48%, ${zone.sky}e6 62%, transparent 100%)`;
+      gate.innerHTML = `<span class="world-gate-line" style="background:` +
+        `linear-gradient(90deg, transparent, ${nextZone.glow}, transparent);` +
+        `box-shadow:0 0 18px 3px ${nextZone.glow}66;"></span>`;
+      path.appendChild(gate);
+    }
 
     // scenery: seeded twinkle dots + two soft glow blobs per zone
     const zrng = mulberry32(((z + 1) * 48271) >>> 0);
@@ -4574,6 +4849,16 @@ function renderMap() {
       d.style.left = (4 + zrng() * 92) + "%";
       d.style.top = (top + 30 + zrng() * Math.max(40, bottom - top - 70)) + "px";
       d.style.background = zone.glow;
+      if (zone.world === "ember") {
+        d.style.borderRadius = "75% 15% 75% 15%";
+        d.style.transform = `rotate(${(zrng() * 180) | 0}deg)`;
+      } else if (zone.world === "crystal") {
+        d.style.borderRadius = "18%";
+        d.style.transform = "rotate(45deg)";
+      } else {
+        d.style.background = "transparent";
+        d.style.border = `1px solid ${zone.glow}`;
+      }
       d.style.opacity = (0.14 + zrng() * 0.38).toFixed(2);
       if (zrng() < 0.35) d.style.boxShadow = `0 0 ${(4 + zrng() * 8) | 0}px ${zone.glow}`;
       path.appendChild(d);
@@ -4634,6 +4919,26 @@ function renderMap() {
     });
     path.appendChild(chest);
   }
+
+  // Draw one uninterrupted route through every live node, including across
+  // 10-level image joins and 50-level world transitions.
+  const routePoints = [];
+  for (let n = 1; n <= maxNode; n++) {
+    routePoints.push({
+      x: xFor(n) * 10,
+      y: yFor(n) + 28
+    });
+  }
+  const routeD = smoothMapRoute(routePoints);
+  const routeSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  routeSvg.setAttribute("class", "map-route");
+  routeSvg.setAttribute("viewBox", `0 0 1000 ${H}`);
+  routeSvg.setAttribute("preserveAspectRatio", "none");
+  routeSvg.innerHTML =
+    `<path class="map-route-shadow" d="${routeD}"/>` +
+    `<path class="map-route-glow" d="${routeD}"/>` +
+    `<path class="map-route-line" d="${routeD}"/>`;
+  path.appendChild(routeSvg);
 
   for (let n = 1; n <= maxNode; n++) {
     // dotted connector to the next node
@@ -5661,6 +5966,104 @@ async function netMigrateIfNeeded(server) {
 }
 
 /* =====================================================================
+   RANKS — leaderboards. Daily = everyone ranked on the SAME seeded board
+   (fair by construction); Gauntlet = lifetime bests; Friends = the
+   referral graph. All server truth; display names are server-validated.
+   ===================================================================== */
+const RANKS = { board: "daily" };
+
+async function openRanks() {
+  document.getElementById("ranks-scrim").classList.add("open");
+  const input = document.getElementById("rk-name-input");
+  if (P.name && !input.value) input.value = P.name;
+  renderRanksBoard();
+}
+
+async function renderRanksBoard() {
+  const list = document.getElementById("rk-list");
+  const sub = document.getElementById("rk-sub");
+  document.querySelectorAll(".rk-tab").forEach(t =>
+    t.classList.toggle("on", t.dataset.board === RANKS.board));
+  if (!NET.online) {
+    list.innerHTML = "";
+    sub.textContent = "Connect to the internet to see the leaderboards.";
+    return;
+  }
+  list.innerHTML = "";
+  sub.textContent = "Loading\u2026";
+  try {
+    const res = await netFetch("/leaderboards/" + RANKS.board);
+    if (!res.ok) { sub.textContent = "Couldn't load \u2014 try again."; return; }
+    const data = await res.json();
+    list.innerHTML = "";
+    if (RANKS.board === "friends") {
+      for (const f of data) {
+        const row = document.createElement("div");
+        row.className = "rk-row" + (f.relation === "you" ? " me" : "");
+        row.innerHTML =
+          `<span class="rk-name">${escapeHtml(f.name)}` +
+          ` <span style="color:var(--text-dim);font-weight:400;">\u00b7 ${f.relation}</span></span>` +
+          `<span class="rk-score">L${f.level} \u00b7 ${f.gauntletBest}</span>`;
+        list.appendChild(row);
+      }
+      sub.textContent = data.length <= 1
+        ? "Invite friends \u2014 everyone you invite shows up here."
+        : "Level \u00b7 best Gauntlet run";
+      return;
+    }
+    for (const r of data.top) {
+      const row = document.createElement("div");
+      row.className = "rk-row" + (r.me ? " me" : "");
+      row.innerHTML =
+        `<span class="rk-rank r${r.rank}">${r.rank}</span>` +
+        `<span class="rk-name">${escapeHtml(r.name)}</span>` +
+        `<span class="rk-score">${r.score}</span>`;
+      list.appendChild(row);
+    }
+    if (!data.top.length) {
+      sub.textContent = RANKS.board === "daily"
+        ? "Nobody has played today's challenge yet \u2014 be first!"
+        : "No runs yet \u2014 survive a Gauntlet!";
+    } else if (data.myRank != null && data.myRank > data.top.length) {
+      sub.textContent = "You: #" + data.myRank + " \u00b7 " + data.myScore;
+    } else if (data.myRank == null) {
+      sub.textContent = RANKS.board === "daily"
+        ? "Play today's Daily Challenge to get ranked."
+        : "Finish a Gauntlet run to get ranked.";
+    } else {
+      sub.textContent = "";
+    }
+  } catch (e) { sub.textContent = "Connection problem \u2014 try again."; }
+}
+
+function escapeHtml(x) {
+  return String(x ?? "").replace(/[&<>"']/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function bindRanksUI() {
+  document.getElementById("map-ranks").addEventListener("click", openRanks);
+  document.querySelectorAll(".rk-tab").forEach(t =>
+    t.addEventListener("click", () => { RANKS.board = t.dataset.board; renderRanksBoard(); }));
+  document.getElementById("rk-name-save").addEventListener("click", async () => {
+    const name = (document.getElementById("rk-name-input").value || "").trim();
+    if (!NET.online) { toast("Connect to the internet first"); return; }
+    try {
+      const res = await netFetch("/profile/name", { method: "POST", body: JSON.stringify({ name }) });
+      const r = await res.json();
+      if (res.ok) {
+        P.name = r.name;
+        persist();
+        toast("Name saved: " + r.name);
+        renderRanksBoard();
+      } else {
+        toast(r.message || "That name didn't work");
+      }
+    } catch (e) { toast("Connection problem \u2014 try again"); }
+  });
+}
+
+/* =====================================================================
    REFERRALS — every player has a 6-char code (server-issued). A new
    player arriving via ?ref=CODE (or typing it in the Invite modal)
    claims it once; the server pays both sides (referee now, referrer at
@@ -5776,6 +6179,7 @@ function mergeServerSave(server) {
   }
   if (server.items) P.items = { ...P.items, ...server.items };
   if (server.chests) P.chests = server.chests;
+  if (server.name) P.name = server.name;
   if (typeof server.gauntletBest === "number") P.gauntletBest = Math.max(P.gauntletBest || 0, server.gauntletBest);
   P.noAds = !!server.noAds;
   persist();
