@@ -1723,6 +1723,21 @@
     </div>
   </div>
 
+  <!-- ===== FIRST-RUN NAME PROMPT ===== -->
+  <div class="scrim" id="name-scrim">
+    <div class="modal">
+      <div class="modal-head"><h2>Welcome to GridShift</h2></div>
+      <p class="modal-sub">Pick a display name so you show up on the leaderboards and to friends. You can change it any time in Ranks.</p>
+      <div class="rk-name-row">
+        <input id="name-first-input" maxlength="16" placeholder="Your name" autocomplete="off">
+      </div>
+      <div class="modal-btn-row">
+        <button class="modal-btn secondary" id="name-skip">Later</button>
+        <button class="modal-btn primary" id="name-first-save">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== RANKS / LEADERBOARDS ===== -->
   <div class="scrim" id="ranks-scrim">
     <div class="modal">
@@ -1817,7 +1832,7 @@ function icon(name, cls) {
   return '<svg class="icon' + (cls ? " " + cls : "") + '" viewBox="0 0 24 24" aria-hidden="true">' +
     (ICON_PATHS[name] || "") + "</svg>";
 }
-const BUILD = "ranks-1";
+const BUILD = "hold-name-2";
 
 /* =====================================================================
    SECTION INDEX  (search a title to jump to it — no line numbers, so it
@@ -3454,7 +3469,7 @@ function onDragMove(e) {
 
   holdEl.classList.remove("drop-ok", "drop-bad");
   if (overHold) {
-    const canHold = drag.source === "tray" && held === null;
+    const canHold = drag.source === "tray";   // empty hold = store, full = swap
     holdEl.classList.add(canHold ? "drop-ok" : "drop-bad");
     drag.canHold = canHold;
     // while hovering hold, the board ghost is misleading — clear it
@@ -3560,25 +3575,25 @@ function onDragEnd() {
   };
 
   // --- CASE 1: dropped on the hold slot ------------------------------
-  // Only valid if it was a TRAY piece AND hold is empty. Hold is NOT
-  // swappable, by design — once full it stays full until the held piece
-  // is placed on the board. canHold was computed live in onDragMove so
-  // we just trust it here. If the drop is invalid (held was full, or
-  // this came from hold itself), snap back to where it was.
+  // A TRAY piece dropped on hold: empty hold -> STORE it; full hold ->
+  // SWAP (the held piece drops into the vacated tray slot). Swapping lets
+  // a player bank an un-placeable piece and keep a usable one, so a bad
+  // deal no longer dead-ends the level. A piece dragged FROM hold can't
+  // be re-held -> snaps back. canHold was computed live in onDragMove.
   if (overHold) {
     if (canHold) {
       floatEl.remove();   // instant commit
-      // remove from its tray slot, move into hold
       const slotIndex = tray.findIndex(p => p && p.id === piece.id);
-      if (slotIndex !== -1) tray[slotIndex] = null;
+      const prevHeld = held;                 // may be null (store) or a piece (swap)
       held = piece;
+      if (slotIndex !== -1) tray[slotIndex] = prevHeld;   // swap drops prevHeld back; store drops null
+      if (typeof SFX !== "undefined") SFX.place();
       render();
-      // If that was the last tray piece, the tray is now all-nulls and
-      // needs to refill. afterTurn() handles both "all placed -> redeal"
-      // and "remaining pieces don't fit -> gentle redeal" — exactly what
-      // we want here. (Earlier version skipped this and the tray sat
-      // empty until the held piece was placed on the board.)
+      if (prevHeld) toast("Swapped with hold");
+      // store of the last tray piece -> tray all-null -> afterTurn redeals;
+      // swap keeps the tray full. afterTurn re-checks fit either way.
       afterTurn();
+      saveSnapshot();
       return;
     } else {
       returnToTray();
@@ -4526,6 +4541,7 @@ function levelWin() {
   netEconomy("level-complete", { level: level.id, stars, score: levelScore, runCoins });
   awardCoins(reward);                              // optimistic; server balance adopted on reply
   celebrateBoard();                                // gold wave across the board...
+  setTimeout(maybePromptName, 900);                // after ~2 wins, invite a name
   setTimeout(() =>                                 // ...then the results modal
     showLevelEnd(true, { stars, reward, firstClear, best: P.levelResults[level.id].highScore }), 750);
 }
@@ -6041,8 +6057,34 @@ function escapeHtml(x) {
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+/* First online boot without a display name -> invite the player to pick
+   one (skippable, asked once). Registration itself already happened as a
+   guest; this just attaches an identity for the social features. */
+function maybePromptName() {
+  if (P.name) return;
+  if (!NET.online) return;
+  if ((P.totals && P.totals.levelsWon || 0) < 2) return;   // let them play first
+  try { if (localStorage.getItem("bp_name_prompted")) return; } catch (e) {}
+  document.getElementById("name-scrim").classList.add("open");
+}
+async function submitFirstName(skip) {
+  try { localStorage.setItem("bp_name_prompted", "1"); } catch (e) {}
+  const scrim = document.getElementById("name-scrim");
+  if (skip) { scrim.classList.remove("open"); return; }
+  const name = (document.getElementById("name-first-input").value || "").trim();
+  if (name.length < 3) { toast("At least 3 characters"); return; }
+  try {
+    const res = await netFetch("/profile/name", { method: "POST", body: JSON.stringify({ name }) });
+    const r = await res.json();
+    if (res.ok) { P.name = r.name; persist(); toast("Welcome, " + r.name + "!"); scrim.classList.remove("open"); }
+    else toast(r.message || "That name didn't work");
+  } catch (e) { toast("Connection problem \u2014 try again"); }
+}
+
 function bindRanksUI() {
   document.getElementById("map-ranks").addEventListener("click", openRanks);
+  document.getElementById("name-first-save").addEventListener("click", () => submitFirstName(false));
+  document.getElementById("name-skip").addEventListener("click", () => submitFirstName(true));
   document.querySelectorAll(".rk-tab").forEach(t =>
     t.addEventListener("click", () => { RANKS.board = t.dataset.board; renderRanksBoard(); }));
   document.getElementById("rk-name-save").addEventListener("click", async () => {
