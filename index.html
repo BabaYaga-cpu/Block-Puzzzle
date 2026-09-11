@@ -1618,6 +1618,87 @@
   .difficulty-options { padding:4px; border:1px solid rgba(181,205,230,.12); border-radius:16px; background:rgba(0,0,0,.15); }
   @media(max-width:360px) { .map-top { padding-left:12px; padding-right:12px; } .map-bottom { padding-left:10px; padding-right:10px; } }
 </style>
+<style id="minimalist-style">
+  body.minimalist { --panel:#ffffff; --panel-hi:#e5e5e5; --bg:#f5f5f5; --bg-2:#eeeeee; --line:#b8b8b8; --text:#171717; --text-dim:#595959; --mint:#333333; --gold:#252525; background:#f5f5f5 !important; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .minimalist .ambient, .minimalist .world-art, .minimalist .map-zone, .minimalist .zone-deco, .minimalist .zone-glow, .minimalist .world-gate { display:none; }
+  .minimalist .map-screen { background:#f5f5f5; }
+  .minimalist .map-path { background:linear-gradient(180deg,#e9e9e9,#f5f5f5); }
+  .minimalist .map-screen::before { background:none; }
+  .minimalist .modal, .minimalist .map-bottom .iconbtn, .minimalist .zone-banner { background:#ffffff; border:1px solid #b8b8b8; box-shadow:none; backdrop-filter:none; -webkit-backdrop-filter:none; }
+  .minimalist .modal { border-radius:18px; }
+  .minimalist .modal-btn, .minimalist .iconbtn { box-shadow:none; text-shadow:none; }
+  .minimalist .map-node { background:#e5e5e5; box-shadow:none; text-shadow:none; }
+  .minimalist .map-node.done { background:#d0d0d0; }
+  .minimalist .map-node.current { background:#252525; border-color:var(--gold); }
+  .minimalist .map-node::before { display:none; }
+  .minimalist .board { background:#eeeeee; border-color:#b8b8b8; box-shadow:none; }
+  .minimalist .cell { box-shadow:none; border-radius:5px; }
+  .minimalist .cell:not(.filled):not(.stone):not(.ice):not(.gem):not(.crate) { background-color:#dddddd; }
+  .minimalist .cell.filled { box-shadow:none; }
+  .minimalist .shard, .minimalist .zone-deco { display:none; }
+  .minimalist .map-node, .minimalist .zone-banner { animation:none !important; }
+  .minimalist .map-top .title { text-shadow:none; }
+
+  /* Desaturate individual surfaces, not the body: fixed overlays keep their viewport positioning. */
+  .minimalist > * { filter:grayscale(1); }
+  .minimalist .map-top, .minimalist .map-bottom { background:rgba(245,245,245,.96); }
+  .minimalist .map-node.current { color:#fff; border:2px solid #111; }
+  .minimalist .map-node.locked { color:#666; background:#ededed; border-color:#ccc; }
+  .minimalist .modal-btn.primary { background:#222; color:#fff; border-color:#222; }
+  .minimalist .modal-btn.secondary, .minimalist .iconbtn { background:#fff; color:#222; border-color:#bbb; }
+  .minimalist .toggle { background:#d0d0d0; border-color:#aaa; }
+  .minimalist .toggle.on { background:#222; border-color:#222; }
+  .minimalist .toggle .knob { background:#fff; }
+  .minimalist .piece-cell.on, .minimalist .cell.filled { background-color:#555 !important; }
+  .minimalist .cell .target { border-color:#111; box-shadow:inset 0 0 0 1px #fff; animation:none; }
+  .minimalist .cell.filled .target { border-color:#fff; box-shadow:inset 0 0 0 1px #111; }
+  .minimalist .cell.ghost::after { background:#333; outline:2px solid #111; outline-offset:-2px; }
+  .minimalist .cell.ghost-bad::after { background:repeating-linear-gradient(45deg,#111 0 3px,transparent 3px 7px); outline:2px dashed #111; outline-offset:-2px; opacity:.65; }
+  .minimalist .hard-complete-badge { background:#222; color:#fff; border-color:#fff; }
+  .minimalist .difficulty-options { background:#eee; border-color:#ccc; }
+  .minimalist input { accent-color:#222; }
+  .minimalist button:focus-visible, .minimalist input:focus-visible { outline-color:#111; }
+</style>
+<style id="minimalist-variants">
+  #minimalist-tones[hidden] { display:none; }
+  body.minimalist { --mono-tile:#111; --mono-surface:#fff; --mono-well:#ddd; --mono-ink:#171717; }
+  body.minimalist-dark { --mono-tile:#fff; --mono-surface:#171717; --mono-well:#333; --mono-ink:#eee; --bg:#101010; --bg-2:#202020; --panel:#171717; --panel-hi:#262626; --line:#555; --text:#eee; --text-dim:#bbb; --mint:#ddd; --gold:#eee; background:#101010 !important; }
+  body.minimalist .piece-cell.on, body.minimalist .floating .fc.on, body.minimalist .cell.filled { background:var(--mono-tile) !important; box-shadow:none !important; border-radius:4px; }
+  body.minimalist .piece-cell.off, body.minimalist .floating .fc.off { background:transparent !important; box-shadow:none !important; }
+  body.minimalist .tray-slot, body.minimalist .hold, body.minimalist .hold-well, body.minimalist .tray { background:var(--mono-surface); border-color:var(--line); box-shadow:none; }
+  body.minimalist-dark .map-screen, body.minimalist-dark .map-top, body.minimalist-dark .map-bottom { background:#101010; }
+  body.minimalist-dark .map-path { background:linear-gradient(#202020,#101010); }
+  body.minimalist-dark .modal, body.minimalist-dark .zone-banner, body.minimalist-dark .map-bottom .iconbtn { background:#171717; border-color:#555; color:#eee; }
+  body.minimalist-dark .board { background:#202020; border-color:#555; }
+  body.minimalist-dark .cell:not(.filled):not(.stone):not(.ice):not(.gem):not(.crate) { background-color:#333; }
+  body.minimalist-dark .map-node { background:#333; color:#eee; }
+  body.minimalist-dark .map-node.done { background:#555; }
+  body.minimalist-dark .map-node.current { background:#eee; color:#111; border-color:#fff; }
+  body.minimalist-dark .map-node.locked { background:#222; color:#aaa; border-color:#555; }
+  body.minimalist-dark .modal-btn.secondary, body.minimalist-dark .iconbtn { background:#222; color:#eee; border-color:#555; }
+  body.minimalist-dark .modal-btn.primary { background:#eee; color:#111; border-color:#eee; }
+  body.minimalist-dark .difficulty-options { background:#222; border-color:#555; }
+  body.minimalist-dark .toggle.on { background:#eee; }
+  body.minimalist-dark .toggle.on .knob { background:#222; }
+  body.minimalist-dark .cell .target { border-color:#fff; box-shadow:inset 0 0 0 1px #111; }
+  body.minimalist-dark .cell.filled .target { border-color:#111; box-shadow:inset 0 0 0 1px #fff; }
+  body.minimalist-dark .cell.ghost::after { background:#fff; outline-color:#fff; }
+  body.minimalist-dark .cell.ghost-bad::after { background:repeating-linear-gradient(45deg,#fff 0 3px,transparent 3px 7px); outline-color:#fff; }
+  body.minimalist-dark button:focus-visible, body.minimalist-dark input:focus-visible { outline-color:#fff; }
+</style>
+<style id="stable-tray-warm-objectives">
+  /* Reserve the same tray space for every shape. Shrink previews, never the board. */
+  .tray-row, .tray { min-width:0; }
+  .tray { flex:1 1 0; }
+  .tray-slot { flex:1 1 0; min-width:0; height:112px; min-height:112px; container-type:inline-size; }
+  .hold-well { min-width:0; container-type:inline-size; }
+  .tray-slot .piece, .hold-well .piece { --preview-cell:min(20px, calc((100cqw - 12px) / 5)); gap:3px; }
+  .piece-cell { width:var(--preview-cell,21px); height:var(--preview-cell,21px); }
+  /* Ancestor desaturation would remove the warm objective tint. */
+  .minimalist > * { filter:none; }
+  body.minimalist .cell .target { background:rgba(255,239,209,.35); border:3px solid #fff0d4; box-shadow:inset 0 0 0 1px #88775b,0 0 0 1px #88775b; }
+  body.minimalist .cell.filled .target { background:rgba(255,239,209,.12); border-color:#fff0d4; box-shadow:inset 0 0 0 1px #88775b; }
+</style>
 </head>
 <body>
 
@@ -1767,6 +1848,17 @@
       <div class="set-row">
         <div><div class="set-name">Haptics</div><div class="set-sub">Vibration on clears &amp; wins</div></div>
         <button class="toggle" id="set-haptics" role="switch" aria-checked="true"><span class="knob"></span></button>
+      </div>
+      <div class="set-row">
+        <div><div class="set-name" id="minimalist-label">Minimalist style</div><div class="set-sub">Clean panels and a quieter map</div></div>
+        <button class="toggle" id="set-minimalist" role="switch" aria-labelledby="minimalist-label" aria-checked="false"><span class="knob"></span></button>
+      </div>
+      <div class="set-row" id="minimalist-tones" hidden>
+        <div class="set-name">Minimalist palette</div>
+        <div role="group" aria-label="Minimalist palette" style="display:flex;gap:8px">
+          <button class="modal-btn secondary" id="minimal-light" aria-pressed="true">Light</button>
+          <button class="modal-btn secondary" id="minimal-dark" aria-pressed="false">Dark</button>
+        </div>
       </div>
       <div class="set-row" id="set-restore-row" style="display:none;">
         <div><div class="set-name">Restore purchases</div><div class="set-sub">Recover No Ads &amp; packs on a new device</div></div>
@@ -2178,7 +2270,7 @@ function defaultSave() {
     dailyRun: { lastWin: null, bestScore: 0 },
     session: null,                       // mid-level snapshot (resume on relaunch)
     touch: { lift: 3, offX: 0.75, multX: 2, multY: 1.5 },  // drag-feel tuning
-    settings: { sound: true, haptics: true },              // audio + vibration toggles
+    settings: { sound: true, haptics: true, minimalist: false, minimalistTone: "light" },              // audio + vibration toggles
   };
 }
 function migrateSave(s) {
@@ -2483,6 +2575,7 @@ let continuesUsed = 0;     // paid continues taken this attempt (escalates cost)
    normal weight, so common stays common, uncommon stays uncommon. */
 const ONBOARDING_LENGTH = 15;
 const ONBOARDING_MIN_WEIGHT = 5;
+let openingTraysLeft = 0;
 let onboardingLeft = ONBOARDING_LENGTH;     // starts on, counts down with placements
 
 /* skins: which skin ids the player owns, and which are equipped */
@@ -2524,6 +2617,7 @@ const holdWell  = document.getElementById("hold-well");
    SETUP
    ===================================================================== */
 function init() {
+  applyMinimalistStyle();
   // build empty grid model
   grid = Array.from({length: GRID_SIZE}, () => Array(GRID_SIZE).fill(null));
 
@@ -2647,6 +2741,16 @@ function bindUI() {
   document.getElementById("map-settings").addEventListener("click", openSettings);
   bindInviteUI();
   bindRanksUI();
+  for (const tone of ["light", "dark"]) {
+    document.getElementById("minimal-" + tone).addEventListener("click", () => {
+      P.settings.minimalistTone = tone;
+      applyMinimalistStyle(); persist(); renderSettings();
+    });
+  }
+  document.getElementById("set-minimalist").addEventListener("click", () => {
+    P.settings.minimalist = !P.settings.minimalist;
+    applyMinimalistStyle(); persist(); renderSettings();
+  });
   document.getElementById("set-sound").addEventListener("click", () => {
     P.settings.sound = !P.settings.sound; persist(); renderSettings();
     if (P.settings.sound) { initAudio(); SFX.place(); }   // instant audible confirmation
@@ -2732,7 +2836,37 @@ function newObjective() {
    TRAY  — three pieces at a time. Must place all three before
    the next three are dealt (the Block Blast rhythm).
    ===================================================================== */
+// Opening offers a two-piece line clear; placement remains the player's choice.
+// No board mutation, reward, or automatic placement occurs here.
+function plannedOpeningTray() {
+  if (openingTraysLeft <= 0 || !(mode === "relax" ||
+      (mode === "journey" && level))) return null;
+  openingTraysLeft--;
+  const options = [];
+  for (let i = 0; i < GRID_SIZE; i++) {
+    if (grid[i].every(cell => !cell)) options.push("h");
+    if (grid.every(row => !row[i])) options.push("v");
+  }
+  if (!options.length || GRID_SIZE !== 8) return null;
+  const axis = options[Math.floor(Math.random() * options.length)];
+  // Vary between 4+4 and 3+5; every piece respects the 3-block minimum.
+  const lengths = Math.random() < 0.5 ? [4, 4] : [3, 5];
+  const pair = lengths.map(n => PIECES.find(p => p.name === "d" + n + axis));
+  if (pair.some(p => !p)) return null;
+  const extra = dealPiece();
+  const result = pair.map(shape => ({ id: ++pieceId, shape,
+    color: COLORS[Math.floor(Math.random() * COLORS.length)] }));
+  result.push(extra);
+  // Mix the tray order without changing the complementary pair.
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
 function dealTray() {
+  const opening = plannedOpeningTray();
+  if (opening) { tray = opening; return; }
   tray = [dealPiece(), dealPiece(), dealPiece()];
   // If none of the three can be placed anywhere, quietly redeal instead
   // of ending the game. (Gauntlet skips this — a dead deal IS the loss.)
@@ -3310,8 +3444,8 @@ function buildPieceEl(piece) {
   const maxC = Math.max(...cells.map(c => c[1]));
   const el = document.createElement("div");
   el.className = "piece";
-  el.style.gridTemplateColumns = `repeat(${maxC + 1}, 24px)`;
-  el.style.gridTemplateRows = `repeat(${maxR + 1}, 24px)`;
+  el.style.gridTemplateColumns = `repeat(${maxC + 1}, var(--preview-cell, 21px))`;
+  el.style.gridTemplateRows = `repeat(${maxR + 1}, var(--preview-cell, 21px))`;
   el.dataset.pieceId = piece.id;
 
   const filledSet = new Set(cells.map(([r, c]) => r + "," + c));
@@ -4269,6 +4403,7 @@ function startLevel(n, difficulty = P.journeyDifficulty) {
 
 /* start ANY spec — used by the journey map AND the daily challenge */
 function startLevelSpec(spec) {
+  openingTraysLeft = 3;
   mode = "journey";
   bossTick = 0;
   level = spec;
@@ -4444,6 +4579,7 @@ function startGauntlet() {
   streak = 0; held = null;
   levelScore = 0;
   gPlacements = 0; gNextStoneAt = 4;
+  openingTraysLeft = 0;
   onboardingLeft = 0;
   grid = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(null));
   newObjective();
@@ -4503,6 +4639,7 @@ function startRelax() {
   crateCells = {};
   streak = 0;
   held = null;
+  openingTraysLeft = 3;
   onboardingLeft = ONBOARDING_LENGTH;
   grid = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(null));
   newObjective();
@@ -5261,7 +5398,22 @@ function applyRotateChoice() {
   saveSnapshot();
 }
 
+function applyMinimalistStyle() {
+  document.body.classList.toggle("minimalist", !!P.settings.minimalist);
+  document.body.classList.toggle("minimalist-dark", !!P.settings.minimalist && P.settings.minimalistTone === "dark");
+}
 function renderSettings() {
+  document.getElementById("minimalist-tones").hidden = !P.settings.minimalist;
+  for (const tone of ["light", "dark"]) {
+    const selected = (P.settings.minimalistTone || "light") === tone;
+    const button = document.getElementById("minimal-" + tone);
+    button.setAttribute("aria-pressed", String(selected));
+    button.classList.toggle("primary", selected);
+    button.classList.toggle("secondary", !selected);
+  }
+  const minimal = document.getElementById("set-minimalist");
+  minimal.classList.toggle("on", !!P.settings.minimalist);
+  minimal.setAttribute("aria-checked", String(!!P.settings.minimalist));
   const snd = document.getElementById("set-sound");
   const hap = document.getElementById("set-haptics");
   snd.classList.toggle("on", !!P.settings.sound);
@@ -5715,7 +5867,7 @@ function saveSnapshot() {
     mode, level, savedAt: new Date().toDateString(),
     grid, iceHP, gemCells, crateCells, targets, objectives,
     movesLeft, levelScore, streak, tray, held, objCleared,
-    onboardingLeft, gPlacements, gNextStoneAt, bossTick, rescueOffered, continuesUsed,
+    openingTraysLeft, onboardingLeft, gPlacements, gNextStoneAt, bossTick, rescueOffered, continuesUsed,
     surgeCharge, pieceId,
   };
   persist();
@@ -5736,6 +5888,7 @@ function restoreSnapshot(snap) {
   tray = snap.tray || [null, null, null];
   held = snap.held || null;
   objCleared = snap.objCleared || 0;
+  openingTraysLeft = Number.isInteger(snap.openingTraysLeft) ? Math.max(0, Math.min(3, snap.openingTraysLeft)) : 0;
   onboardingLeft = snap.onboardingLeft === undefined ? ONBOARDING_LENGTH : snap.onboardingLeft;
   gPlacements = snap.gPlacements || 0;
   gNextStoneAt = snap.gNextStoneAt || 4;
