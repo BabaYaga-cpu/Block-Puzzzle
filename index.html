@@ -24,7 +24,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 
 <!-- ===== INSTALLABLE APP (PWA) — added so this runs full-screen from the home screen ===== -->
 <meta name="theme-color" content="#0f172a" />
@@ -846,11 +846,28 @@
       var(--bg);
   }
   .map-screen.open { display: flex; }
-  .map-top {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: max(18px, env(safe-area-inset-top)) 20px 12px;
-    max-width: 460px; width: 100%; margin: 0 auto;
+  /* Cinematic frame over whatever artwork the map shows: soft edge
+     vignette + darker top/bottom so the header and button chrome always
+     read, and the world feels like a window rather than a flat scroll.
+     Sits above the scroll layer, below the fixed header/footer, and never
+     eats taps (pointer-events:none). */
+  .map-screen::before {
+    content: ""; position: absolute; inset: 0; z-index: 3;
+    pointer-events: none;
+    background:
+      linear-gradient(180deg, rgba(8,11,20,.85) 0%, transparent 14%, transparent 82%, rgba(8,11,20,.9) 100%),
+      radial-gradient(130% 90% at 50% 50%, transparent 55%, rgba(6,8,15,.55) 100%);
   }
+  .map-top {
+    position: relative; z-index: 5;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: max(18px, env(safe-area-inset-top)) 20px 14px;
+    width: 100%;
+    background: linear-gradient(180deg, rgba(10,13,22,.72) 0%, rgba(10,13,22,.35) 65%, transparent 100%);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  }
+  .map-top > * { max-width: 460px; }
+  .map-top .title { text-shadow: 0 2px 8px rgba(0,0,0,.7); }
   .map-scroll {
     flex: 1;
     overflow-y: auto;
@@ -870,6 +887,9 @@
     cursor: pointer;
     transition: transform .12s ease;
     z-index: 2;
+    /* depth: drop shadow off the artwork + inner top highlight */
+    box-shadow: 0 6px 16px -4px rgba(0,0,0,.7), inset 0 2px 3px rgba(255,255,255,.14);
+    text-shadow: 0 1px 3px rgba(0,0,0,.6);
   }
   .map-node:active { transform: scale(.94); }
   .map-node.done {
@@ -877,14 +897,21 @@
     border-color: var(--mint);
   }
   .map-node.current {
-    background: linear-gradient(180deg, #5a4426, #43331d);
+    background: linear-gradient(180deg, #6a5030, #43331d);
     border-color: var(--gold);
     animation: nodepulse 2s ease-in-out infinite;
   }
   @keyframes nodepulse {
-    0%,100% { box-shadow: 0 0 0 5px rgba(224,169,96,.22), 0 0 24px rgba(224,169,96,.35); }
-    50%     { box-shadow: 0 0 0 8px rgba(224,169,96,.14), 0 0 32px rgba(224,169,96,.55); }
+    0%,100% { box-shadow: 0 6px 16px -4px rgba(0,0,0,.7), 0 0 0 5px rgba(224,169,96,.28), 0 0 26px rgba(224,169,96,.4); }
+    50%     { box-shadow: 0 6px 16px -4px rgba(0,0,0,.7), 0 0 0 9px rgba(224,169,96,.16), 0 0 40px rgba(224,169,96,.65); }
   }
+  /* current node gets a soft rotating halo behind it for a "you are here" beacon */
+  .map-node.current::before {
+    content: ""; position: absolute; inset: -14px; border-radius: 50%;
+    background: conic-gradient(from 0deg, transparent, rgba(224,169,96,.45), transparent 55%);
+    z-index: -1; animation: nodehalo 4s linear infinite;
+  }
+  @keyframes nodehalo { to { transform: rotate(360deg); } }
   .map-node.locked { opacity: .4; cursor: default; background: var(--panel); }
   .map-node.hard { border-color: #f06d4e; }
   .map-node.hard.locked { border-color: rgba(240,109,78,.5); }
@@ -951,6 +978,17 @@
     stroke-linecap: round; stroke-linejoin: round;
   }
   .map-dot { display: none; }
+  /* ambient motes: a few slow-drifting glints per world for life/depth */
+  .map-mote {
+    position: absolute; z-index: 1; pointer-events: none;
+    border-radius: 50%;
+    animation: motedrift var(--mdur, 14s) ease-in-out infinite alternate;
+    will-change: transform, opacity;
+  }
+  @keyframes motedrift {
+    0%   { transform: translate(0, 0) scale(1); opacity: var(--mo, .5); }
+    100% { transform: translate(var(--mdx, 10px), var(--mdy, -22px)) scale(1.25); opacity: 0; }
+  }
   /* One continuous artwork per 50-level world, spanning its five bands.
      cover = no stretching whatever the source aspect; the wash bands and
      world gates paint on top. z-index below bands (bands are z0 but appended
@@ -1166,9 +1204,18 @@
   .ref-stats b { color: var(--text); }
 
   .map-bottom {
-    display: flex; gap: 8px; flex-wrap: wrap;
-    padding: 12px 20px max(20px, env(safe-area-inset-bottom));
-    max-width: 460px; width: 100%; margin: 0 auto;
+    position: relative; z-index: 5;
+    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+    padding: 16px 20px max(20px, env(safe-area-inset-bottom));
+    width: 100%;
+    background: linear-gradient(0deg, rgba(10,13,22,.82) 0%, rgba(10,13,22,.4) 60%, transparent 100%);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  }
+  .map-bottom .iconbtn {
+    flex: 1 1 28%; max-width: 150px; padding: 12px 6px; font-size: 13px;
+    background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.12);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
   }
   .map-bottom .iconbtn { flex: 1 1 28%; padding: 12px 6px; font-size: 13px; }
 
@@ -1542,6 +1589,12 @@
     visibility: hidden;
   }
 </style>
+<style>
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--mint); outline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+  }
+</style>
 </head>
 <body>
 
@@ -1692,6 +1745,10 @@
         <div><div class="set-name">Haptics</div><div class="set-sub">Vibration on clears &amp; wins</div></div>
         <button class="toggle" id="set-haptics" role="switch" aria-checked="true"><span class="knob"></span></button>
       </div>
+      <div class="set-row" id="set-restore-row" style="display:none;">
+        <div><div class="set-name">Restore purchases</div><div class="set-sub">Recover No Ads &amp; packs on a new device</div></div>
+        <button class="modal-btn secondary" id="set-restore" style="flex:0 0 auto;padding:9px 14px;">Restore</button>
+      </div>
 
       <div class="set-divider">Touch feel <small>&middot; applies live, even mid-drag</small></div>
       <div class="debug-slider" id="lift-slider-wrap">
@@ -1832,7 +1889,7 @@ function icon(name, cls) {
   return '<svg class="icon' + (cls ? " " + cls : "") + '" viewBox="0 0 24 24" aria-hidden="true">' +
     (ICON_PATHS[name] || "") + "</svg>";
 }
-const BUILD = "hold-name-2";
+const BUILD = "restore-1";
 
 /* =====================================================================
    SECTION INDEX  (search a title to jump to it — no line numbers, so it
@@ -2537,6 +2594,7 @@ function bindUI() {
     });
   }
   document.getElementById("open-settings").addEventListener("click", openSettings);
+  document.getElementById("set-restore").addEventListener("click", iapRestore);
   document.getElementById("settings-reset").addEventListener("click", () => {
     const defs = { "lift-slider": 3, "xoff-slider": 0.75, "xmult-slider": 2, "ymult-slider": 1.5 };
     for (const id in defs) {
@@ -3242,7 +3300,7 @@ function buildPieceEl(piece) {
 let drag = null;  // { piece, grabDR, grabDC, floatEl, liftPx }
 
 function startDrag(e, piece, pieceEl) {
-  if (busy) return;
+  if (busy || drag || e.isPrimary === false || (e.button !== undefined && e.button !== 0)) return;
   e.preventDefault();
 
   // ROTATE power-up armed: this tap rotates the piece instead of dragging
@@ -3351,12 +3409,13 @@ function startDrag(e, piece, pieceEl) {
   // a drag so it doesn't bog down normal page scrolling.
   window.addEventListener("touchmove", blockTouchScroll, { passive: false });
 
+  drag.pointerId = e.pointerId;
   onDragMove(e); // position immediately
 }
 function blockTouchScroll(e) { e.preventDefault(); }
 
 function onDragMove(e) {
-  if (!drag) return;
+  if (!drag || (drag.pointerId !== undefined && e.pointerId !== drag.pointerId)) return;
   const { piece, grabDR, grabDC, floatEl, cs, gap, liftPx, isTouch } = drag;
   const br = drag.boardRect;   // cached at grab — no layout work per frame
 
@@ -3530,8 +3589,9 @@ function paintGhost(shape, originR, originC, color) {
   }
 }
 
-function onDragEnd() {
-  if (!drag) return;
+function onDragEnd(e) {
+  if (!drag || (e && drag.pointerId !== undefined && e.pointerId !== drag.pointerId)) return;
+  if (e && e.type === "pointerup") onDragMove(e);
   const { piece, pieceEl, floatEl, originR, originC, source, overHold, canHold, trayScale } = drag;
 
   boardEl.querySelectorAll(".ghost,.ghost-bad,.will-clear").forEach(el => {
@@ -3573,6 +3633,8 @@ function onDragEnd() {
       anim.oncancel = finish;
     } catch (_) { finish(); }
   };
+
+  if (e && e.type === "pointercancel") { returnToTray(); return; }
 
   // --- CASE 1: dropped on the hold slot ------------------------------
   // A TRAY piece dropped on hold: empty hold -> STORE it; full hold ->
@@ -4879,6 +4941,23 @@ function renderMap() {
       if (zrng() < 0.35) d.style.boxShadow = `0 0 ${(4 + zrng() * 8) | 0}px ${zone.glow}`;
       path.appendChild(d);
     }
+    // ambient drifting motes — few, cheap, themed to this world's glow
+    for (let i = 0; i < 5; i++) {
+      const m = document.createElement("div");
+      m.className = "map-mote";
+      const sz = 3 + zrng() * 5;
+      m.style.width = m.style.height = sz.toFixed(1) + "px";
+      m.style.left = (6 + zrng() * 88) + "%";
+      m.style.top = (top + 40 + zrng() * Math.max(60, bottom - top - 120)) + "px";
+      m.style.background = zone.glow;
+      m.style.boxShadow = `0 0 ${(6 + zrng() * 10) | 0}px ${zone.glow}`;
+      m.style.setProperty("--mo", (0.35 + zrng() * 0.4).toFixed(2));
+      m.style.setProperty("--mdx", ((zrng() * 30 - 15) | 0) + "px");
+      m.style.setProperty("--mdy", (-(18 + zrng() * 34) | 0) + "px");
+      m.style.setProperty("--mdur", (10 + zrng() * 10).toFixed(1) + "s");
+      m.style.animationDelay = (-(zrng() * 10)).toFixed(1) + "s";
+      path.appendChild(m);
+    }
     for (let i = 0; i < 2; i++) {
       const g = document.createElement("div");
       g.className = "zone-glow";
@@ -5083,9 +5162,29 @@ function renderSettings() {
   hap.classList.toggle("on", !!P.settings.haptics);
   hap.setAttribute("aria-checked", P.settings.haptics ? "true" : "false");
 }
+/* Restore purchases (Play requires a visible restore path for the No Ads
+   non-consumable). The billing bridge re-emits owned purchase tokens to
+   bpIapDeliver, which re-verifies with the server and re-grants — the
+   server returns "duplicate" for already-owned, which we treat as success.
+   Falls back to re-init (which also triggers the plugin's redelivery). */
+function iapRestore() {
+  const b = iapBridge();
+  if (!b) { toast("Restore is only available in the app"); return; }
+  if (!NET.online) { toast("Connect to the internet to restore"); return; }
+  toast("Restoring\u2026");
+  try {
+    if (typeof b.restore === "function") b.restore();
+    else if (typeof b.getProducts === "function") iapInit();   // fallback: re-query triggers redelivery
+  } catch (e) {}
+  // bpIapDeliver flips P.noAds + toasts on success; nudge the UI shortly after
+  setTimeout(() => { renderShop(); renderSettings(); }, 2500);
+}
+
 function openSettings() {
   const stamp = document.getElementById("build-stamp");
   if (stamp) stamp.textContent = "build " + BUILD;
+  const restoreRow = document.getElementById("set-restore-row");
+  if (restoreRow) restoreRow.style.display = iapAvailable() ? "" : "none";
   renderSettings();
   document.getElementById("settings-scrim").classList.add("open");
 }
@@ -5567,7 +5666,7 @@ function maybeOfferResume() {
     : snap.level && snap.level.isDaily ? "today's Daily Challenge"
     : "Level " + (snap.level ? snap.level.id : "?");
   document.getElementById("end-body").innerHTML =
-    '<p class="end-sub" style="font-size:14px;">You have ' + what + " in progress.</p>";
+    '<p class="end-sub" style="font-size:14px;">You have ' + escapeHtml(what) + " in progress.</p>";
   const btns = document.getElementById("end-buttons");
   btns.innerHTML = "";
   const discard = document.createElement("button");
@@ -5837,7 +5936,10 @@ if (typeof window !== "undefined") window.handleNativeBack = handleNativeBack;
        and drain on reconnect — replays are server-side no-ops.
    ===================================================================== */
 const NET = {
-  base: (localStorage.getItem("bp_api_base") || "https://block-puzzzle.onrender.com") + "/api",
+  base: (() => {
+    try { return (localStorage.getItem("bp_api_base") || "https://block-puzzzle.onrender.com").replace(/\/+$/, "") + "/api"; }
+    catch (_) { return "https://block-puzzzle.onrender.com/api"; }
+  })(),
   online: false,
   access: null,
   playerId: null,
@@ -5848,13 +5950,16 @@ const NET = {
   retryTimer: null,
   booting: false,
 };
-try { NET.queue = JSON.parse(localStorage.getItem("bp_net_queue") || "[]"); } catch (e) {}
+try {
+  const queue = JSON.parse(localStorage.getItem("bp_net_queue") || "[]");
+  if (Array.isArray(queue)) NET.queue = queue.filter(item => item && typeof item.path === "string" && item.body && typeof item.body === "object");
+} catch (e) {}
 
 function idemKey() {
   return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
 }
 function netSaveQueue() {
-  try { localStorage.setItem("bp_net_queue", JSON.stringify(NET.queue.slice(-200))); } catch (e) {}
+  try { localStorage.setItem("bp_net_queue", JSON.stringify(NET.queue)); } catch (e) {}
 }
 
 async function netFetch(path, opts, retry) {
@@ -5912,8 +6017,10 @@ async function netBoot() {
     }
     NET.online = true;
     await netDrainQueue();
+    if (!NET.online) throw new Error("Queue sync incomplete");
     const res = await netFetch("/save");
-    if (res.ok) mergeServerSave(await netMigrateIfNeeded(await res.json()));
+    if (!res.ok) throw new Error("Save sync failed");
+    mergeServerSave(await netMigrateIfNeeded(await res.json()));
     netReferralSync();
     NET.retryMs = 5000;   // healthy: reset the backoff
   } catch (e) {
@@ -5977,8 +6084,9 @@ async function netMigrateIfNeeded(server) {
       const fresh = await netFetch("/save");          // re-read post-migration truth
       if (fresh.ok) return await fresh.json();
     }
-  } catch (e) { /* offline blip: merge proceeds; migration retried next boot */ }
-  return server;
+  } catch (e) { throw new Error("Progress migration interrupted", { cause: e }); }
+  // Keep local progress until migration can be confirmed.
+  throw new Error("Progress migration not confirmed");
 }
 
 /* =====================================================================
@@ -5995,7 +6103,10 @@ async function openRanks() {
   renderRanksBoard();
 }
 
+let ranksRequest = 0;
 async function renderRanksBoard() {
+  const request = ++ranksRequest;
+  const requestedBoard = RANKS.board;
   const list = document.getElementById("rk-list");
   const sub = document.getElementById("rk-sub");
   document.querySelectorAll(".rk-tab").forEach(t =>
@@ -6008,9 +6119,11 @@ async function renderRanksBoard() {
   list.innerHTML = "";
   sub.textContent = "Loading\u2026";
   try {
-    const res = await netFetch("/leaderboards/" + RANKS.board);
+    const res = await netFetch("/leaderboards/" + requestedBoard);
+    if (request !== ranksRequest) return;
     if (!res.ok) { sub.textContent = "Couldn't load \u2014 try again."; return; }
     const data = await res.json();
+    if (request !== ranksRequest) return;
     list.innerHTML = "";
     if (RANKS.board === "friends") {
       for (const f of data) {
@@ -6018,7 +6131,7 @@ async function renderRanksBoard() {
         row.className = "rk-row" + (f.relation === "you" ? " me" : "");
         row.innerHTML =
           `<span class="rk-name">${escapeHtml(f.name)}` +
-          ` <span style="color:var(--text-dim);font-weight:400;">\u00b7 ${f.relation}</span></span>` +
+          ` <span style="color:var(--text-dim);font-weight:400;">\u00b7 ${escapeHtml(f.relation)}</span></span>` +
           `<span class="rk-score">L${f.level} \u00b7 ${f.gauntletBest}</span>`;
         list.appendChild(row);
       }
@@ -6049,7 +6162,7 @@ async function renderRanksBoard() {
     } else {
       sub.textContent = "";
     }
-  } catch (e) { sub.textContent = "Connection problem \u2014 try again."; }
+  } catch (e) { if (request !== ranksRequest) return; sub.textContent = "Connection problem \u2014 try again."; }
 }
 
 function escapeHtml(x) {
@@ -6140,8 +6253,9 @@ async function netReferralSync() {
         REF.me.referred = true;
         toast("\u{1F381} Friend code redeemed \u2014 +" + r.granted + " coins!");
       }
-      // claimed, invalid, or ineligible: either way stop retrying
-      localStorage.removeItem("bp_pending_ref");
+      // Preserve the code when the server is temporarily unavailable.
+      if (claim.ok || [400, 403, 404, 409, 422].includes(claim.status))
+        localStorage.removeItem("bp_pending_ref");
     }
   } catch (e) { /* next boot retries the fetch */ }
 }
@@ -6257,7 +6371,8 @@ async function netEconomy(path, body) {
   }
   try {
     const res = await netFetch("/economy/" + path, { method: "POST", body: JSON.stringify(body) });
-    if (!res.ok) return null;   // 409 replay / rejection: server state arrives at next merge
+    if (res.status === 429 || res.status >= 500 || res.status === 401) throw new Error("Retryable economy response");
+    if (!res.ok) return null;   // permanent rejection; do not replay
     const result = await res.json();
     adoptBalance(result);
     return result;
@@ -6276,7 +6391,11 @@ async function netDrainQueue() {
     try {
       const res = await netFetch("/economy/" + path, { method: "POST", body: JSON.stringify(body) });
       if (res.ok) adoptBalance(await res.json());
-      else if (res.status !== 409 && res.status !== 400) break;  // transient: retry later
+      else if (res.status !== 409 && res.status !== 400) {
+        NET.online = false;
+        scheduleNetRetry();
+        break;
+      }
       NET.queue.shift();
       netSaveQueue();
     } catch (e) { NET.online = false; scheduleNetRetry(); break; }
