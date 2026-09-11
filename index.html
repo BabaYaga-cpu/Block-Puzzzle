@@ -1699,6 +1699,24 @@
   body.minimalist .cell .target { background:rgba(255,239,209,.35); border:3px solid #fff0d4; box-shadow:inset 0 0 0 1px #88775b,0 0 0 1px #88775b; }
   body.minimalist .cell.filled .target { background:rgba(255,239,209,.12); border-color:#fff0d4; box-shadow:inset 0 0 0 1px #88775b; }
 </style>
+<style id="hold-drop-feedback">
+  .hold { position:relative; isolation:isolate; --hold-glow:230,190,110; transition:border-color .18s ease, box-shadow .18s ease; }
+  .hold::before { content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:0; opacity:0; background:radial-gradient(ellipse at 50% 75%,rgba(var(--hold-glow),.17),transparent 78%); transition:opacity .18s ease; }
+  .hold > * { position:relative; z-index:1; }
+  .hold .hold-label { transition:color .18s ease; }
+  .hold.empty .hold-well::after { transition:border-color .18s ease,background-color .18s ease; }
+  .hold.drop-ok, body.minimalist .hold.drop-ok { background:var(--bg-2) !important; outline:none; border-color:rgba(var(--hold-glow),.8); box-shadow:0 0 0 1px rgba(var(--hold-glow),.16),0 0 16px rgba(var(--hold-glow),.18),inset 0 0 12px rgba(var(--hold-glow),.06) !important; }
+  .hold.drop-ok::before { opacity:1; }
+  .hold.drop-ok .hold-label { color:var(--text); }
+  .hold.drop-ok.empty .hold-well::after { border-color:rgba(var(--hold-glow),.8); background:rgba(var(--hold-glow),.07); }
+  body.minimalist:not(.minimalist-dark) .hold { --hold-glow:145,116,66; }
+  body.minimalist:not(.minimalist-dark) .hold.drop-ok { background:#fffdf8 !important; }
+  body.minimalist-dark .hold { --hold-glow:255,235,199; }
+  body.minimalist-dark .hold.drop-ok { background:#1b1916 !important; }
+  body.minimalist .hold.drop-ok .hold-well { background:transparent; }
+  .tray-slot.drop-ok { background:rgba(230,190,110,.12) !important; outline:2px dashed #c89b4d; outline-offset:-3px; border-radius:12px; }
+  @media(prefers-reduced-motion:reduce) { .hold,.hold::before,.hold .hold-label,.hold.empty .hold-well::after { transition:none; } }
+</style>
 </head>
 <body>
 
@@ -3687,9 +3705,26 @@ function onDragMove(e) {
     x >= hb.left - padX && x <= hb.right  + padX &&
     y >= hb.top  - padY && y <= hb.bottom + padY;
   const boardValid = canPlace(piece.shape, originR, originC);
-  const overHold = !boardValid &&
-    (nearHold(e.clientX, e.clientY) || nearHold(lx, ly - liftPx));
+  const holdBounds = holdEl.getBoundingClientRect();
+  const inside = rect => e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+  const overHold = inside(holdBounds) || (!boardValid &&
+    (nearHold(e.clientX, e.clientY) || nearHold(lx, ly - liftPx)));
   drag.overHold = overHold;
+  drag.trayTarget = -1;
+  Array.from(trayEl.children).forEach((slot, i) => {
+    const eligible = drag.source === "hold" && !tray[i] && inside(slot.getBoundingClientRect());
+    slot.classList.toggle("drop-ok", eligible);
+    if (eligible) drag.trayTarget = i;
+  });
+  if (drag.trayTarget >= 0) {
+    holdEl.classList.remove("drop-ok", "drop-bad");
+    boardEl.querySelectorAll(".ghost,.ghost-bad,.will-clear").forEach(el => {
+      el.classList.remove("ghost", "ghost-bad", "will-clear");
+      el.style.removeProperty("--ghost-color");
+    });
+    drag.lastR = undefined;
+    return;
+  }
 
   // DIRTY CHECK: ghost + hold highlight only need repainting when the
   // SNAPPED state changes (origin cell or hold hover), not on every raw
@@ -3765,7 +3800,7 @@ function paintGhost(shape, originR, originC, color) {
 function onDragEnd(e) {
   if (!drag || (e && drag.pointerId !== undefined && e.pointerId !== drag.pointerId)) return;
   if (e && e.type === "pointerup") onDragMove(e);
-  const { piece, pieceEl, floatEl, originR, originC, source, overHold, canHold, trayScale } = drag;
+  const { piece, pieceEl, floatEl, originR, originC, source, overHold, canHold, trayScale, trayTarget } = drag;
 
   boardEl.querySelectorAll(".ghost,.ghost-bad,.will-clear").forEach(el => {
     el.classList.remove("ghost", "ghost-bad", "will-clear");
@@ -3773,6 +3808,7 @@ function onDragEnd(e) {
   });
   // clear any hold-slot hover highlight from onDragMove
   holdEl.classList.remove("drop-ok", "drop-bad");
+  Array.from(trayEl.children).forEach(slot => slot.classList.remove("drop-ok"));
   // Unlock page scrolling now that the drag is over.
   document.documentElement.classList.remove("dragging");
   window.removeEventListener("pointermove", onDragMove);
@@ -3808,6 +3844,15 @@ function onDragEnd(e) {
   };
 
   if (e && e.type === "pointercancel") { returnToTray(); return; }
+
+  if (source === "hold" && Number.isInteger(trayTarget) && trayTarget >= 0 && trayTarget < tray.length && !tray[trayTarget]) {
+    tray[trayTarget] = piece;
+    held = null;
+    floatEl.remove();
+    render();
+    saveSnapshot();
+    return;
+  }
 
   // --- CASE 1: dropped on the hold slot ------------------------------
   // A TRAY piece dropped on hold: empty hold -> STORE it; full hold ->
