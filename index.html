@@ -1595,6 +1595,29 @@
     *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
   }
 </style>
+<style>
+.difficulty-options { display:flex; gap:8px; margin:14px 0 8px; }
+.difficulty-options button { flex:1; min-height:46px; padding:10px 8px; }
+.difficulty-options button:disabled { opacity:.65; cursor:default; }
+.difficulty-note { color:var(--text-dim); font-size:14px; line-height:1.45; margin:8px 0 14px; }
+.hard-complete-badge { position:absolute; right:-7px; top:-7px; border:2px solid #ffe194; border-radius:50%; background:#56360f; color:#ffe194; width:24px; height:24px; font-size:13px; display:grid; place-items:center; }
+.map-node .node-type { white-space:nowrap; }
+</style>
+<style id="map-polish">
+  .map-path { overflow:hidden; background:#101a29; }
+  .world-gate { display:none; }
+  .map-scroll { min-height:0; width:100%; mask-image:linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 32px), transparent); -webkit-mask-image:linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 32px), transparent); }
+  .map-top { padding-bottom:12px; background:linear-gradient(to bottom,rgba(12,20,34,.92),rgba(12,20,34,.5),transparent); }
+  .map-bottom { gap:8px; padding-top:12px; background:linear-gradient(to top,rgba(12,20,34,.96),rgba(12,20,34,.65),transparent); }
+  .map-bottom .iconbtn { min-height:44px; border-radius:14px; background:rgba(29,44,62,.78); border-color:rgba(181,205,230,.13); box-shadow:inset 0 1px 0 rgba(255,255,255,.04); }
+  .modal { border-radius:22px; border-color:rgba(181,205,230,.17); box-shadow:0 20px 60px rgba(0,0,0,.38); }
+  .modal-btn { min-height:44px; border-radius:12px; }
+  .zone-banner { border-color:rgba(181,205,230,.13); background:rgba(15,25,40,.65); box-shadow:0 6px 22px rgba(0,0,0,.16); }
+  .zone-deco { opacity:.38; }
+  .map-node.locked { opacity:.65; }
+  .difficulty-options { padding:4px; border:1px solid rgba(181,205,230,.12); border-radius:16px; background:rgba(0,0,0,.15); }
+  @media(max-width:360px) { .map-top { padding-left:12px; padding-right:12px; } .map-bottom { padding-left:10px; padding-right:10px; } }
+</style>
 </head>
 <body>
 
@@ -2068,11 +2091,8 @@ let COLORS = SKINS.blocks[0].colors.slice();
 
 /* Piece shapes as coordinate lists [row,col], normalized to top-left.
    `w` is a rough rarity weight — higher = appears more often.
-   Relax mode leans on small/medium pieces, so those carry more weight. */
+   All new deals use three or more cells. Medium pieces carry more weight. */
 const PIECES = [
-  { name:"dot",    cells:[[0,0]],                                  w:5 },
-  { name:"d2h",    cells:[[0,0],[0,1]],                            w:8 },
-  { name:"d2v",    cells:[[0,0],[1,0]],                            w:8 },
   { name:"d3h",    cells:[[0,0],[0,1],[0,2]],                      w:8 },
   { name:"d3v",    cells:[[0,0],[1,0],[2,0]],                      w:8 },
   { name:"d4h",    cells:[[0,0],[0,1],[0,2],[0,3]],                w:4 },
@@ -2109,6 +2129,10 @@ const PIECES = [
      full 3x3 corner. Eats a corner of the board — great for veterans
      who've worked themselves into a tight spot. Rare (w:2). */
   { name:"bigCorner",  cells:[[0,0],[1,0],[2,0],[2,1],[2,2]],      w:2 },
+  // Equal-arm L: all four orientations, three blocks along each arm.
+  { name:"bigCorner_R", cells:[[0,0],[0,1],[0,2],[1,0],[2,0]], w:2 },
+  { name:"bigCorner_2", cells:[[0,0],[0,1],[0,2],[1,2],[2,2]], w:2 },
+  { name:"bigCorner_L", cells:[[0,2],[1,2],[2,0],[2,1],[2,2]], w:2 },
 
   /* S-bend (zig). No straight option — placement is a real decision,
      not a fill-anywhere piece. Adds genuine strategic depth. */
@@ -2141,6 +2165,8 @@ function defaultSave() {
     version: SAVE_VERSION,
     coins: 0,
     currentLevel: 1,                 // highest UNLOCKED (not yet beaten) level
+    journeyDifficulty: "easy",
+    difficultyResults: {},
     levelResults: {},                // "12": { stars: 3, highScore: 4200 }
     owned: ["blocks_default", "bg_default", "orbs_cosmic"],
     equipped: { blocks: "blocks_default", bg: "bg_default", orbs: "orbs_cosmic" },
@@ -2715,12 +2741,14 @@ function dealTray() {
     tray = [dealPiece(), dealPiece(), dealPiece()];
   }
   // PITY RULE: on a crowded board, never serve three big awkward pieces
-  // at once — swap one for a small shape so there is always a fighting
+  // at once — swap one for a forgiving shape so there is a better fighting
   // chance. Fires rarely; kills the worst "nothing fits" frustration.
   const fill = grid ? grid.flat().filter(Boolean).length / (GRID_SIZE * GRID_SIZE) : 0;
   if (fill >= 0.45 && !tray.some(p => p && p.shape.w >= ONBOARDING_MIN_WEIGHT)) {
-    const small = PIECES.filter(p => p.w >= ONBOARDING_MIN_WEIGHT);
-    const shape = small[(Math.random() * small.length) | 0];
+    const forgiving = PIECES.filter(p => p.w >= ONBOARDING_MIN_WEIGHT && !p.name.startsWith("cornS"));
+    const fitting = forgiving.filter(shape => pieceFits({ shape }));
+    const candidates = fitting.length ? fitting : forgiving;
+    const shape = candidates[(Math.random() * candidates.length) | 0];
     tray[(Math.random() * 3) | 0] =
       { id: ++pieceId, shape, color: COLORS[(Math.random() * COLORS.length) | 0] };
   }
@@ -2762,6 +2790,17 @@ function dealPiece() {
       : PIECES;
     weightOf = p => p.w;
   }
+  if (mode === "journey" && level && !level.isDaily && level.difficulty) {
+    const originalWeight = weightOf;
+    const easy = level.difficulty === "easy";
+    const fill = grid.flat().filter(Boolean).length / (GRID_SIZE * GRID_SIZE);
+    weightOf = p => originalWeight(p) * (easy
+      ? (p.w >= ONBOARDING_MIN_WEIGHT ? 1.7 : 0.65) * (fill < 0.35 && p.cells.length >= 4 ? 1.35 : 1)
+      : (p.w >= ONBOARDING_MIN_WEIGHT ? 0.85 : 1.2));
+  }
+  // Keep corners in the forgiving pool, but deal them much less often.
+  const difficultyWeight = weightOf;
+  weightOf = p => difficultyWeight(p) * (p.name.startsWith("cornS") ? 0.3 : 1);
   const total = pool.reduce((s, p) => s + weightOf(p), 0);
   let roll = Math.random() * total;
   let shape = pool[0];
@@ -4078,7 +4117,7 @@ const OBJ_META = {
 
 function updateHUD() {
   modeTitle.textContent = mode === "journey"
-    ? (level && level.isDaily ? "Daily Challenge" : "Level " + level.id)
+    ? (level && level.isDaily ? "Daily Challenge" : "Level " + level.id + (level.difficulty ? " · " + (level.difficulty === "hard" ? "Hard" : "Easy") : ""))
     : mode === "gauntlet"
     ? "Gauntlet \u00b7 " + levelScore
     : "GridShift · Relax";
@@ -4210,8 +4249,22 @@ function spawnTargets() {
   targets = targets.concat(empties.slice(0, want));
 }
 
-function startLevel(n) {
-  startLevelSpec(LevelManager.getLevel(n));
+function journeySpec(n, difficulty = P.journeyDifficulty) {
+  const spec = LevelManager.getLevel(n);
+  spec.difficulty = difficulty === "hard" ? "hard" : "easy";
+  spec.baseReward = spec.rewards.coins;
+  spec.rewards = { coins: Math.round(spec.baseReward * (spec.difficulty === "hard" ? 1.5 : 1)) };
+  if (spec.moveLimit !== null) spec.moveLimit = Math.max(10, Math.ceil(spec.moveLimit * (spec.difficulty === "easy" ? 1.25 : 1)));
+  if (spec.difficulty === "easy") spec.stoneCount = Math.floor(spec.stoneCount * 0.65);
+  return spec;
+}
+function journeyReward(spec, firstClear) {
+  const base = spec.baseReward ?? spec.rewards.coins;
+  const amount = firstClear ? base : Math.max(5, Math.round(base * 0.25));
+  return Math.round(amount * (spec.difficulty === "hard" ? 1.5 : 1));
+}
+function startLevel(n, difficulty = P.journeyDifficulty) {
+  startLevelSpec(journeySpec(n, difficulty));
 }
 
 /* start ANY spec — used by the journey map AND the daily challenge */
@@ -4467,10 +4520,45 @@ function startRelax() {
 
 /* ---- level intro (pre-play modal: objectives, moves, tutorial tip) --- */
 function showLevelIntro(n) {
-  const spec = LevelManager.getLevel(n);
+  const savedAttempt = P.session && P.session.mode === "journey" && P.session.level && !P.session.level.isDaily && P.session.level.id === n ? P.session : null;
+  const spec = savedAttempt ? savedAttempt.level : journeySpec(n);
+  const chosen = spec.difficulty || "legacy";
+  let picker = document.getElementById("difficulty-picker");
+  if (!picker) {
+    picker = document.createElement("div");
+    picker.id = "difficulty-picker";
+    document.getElementById("intro-title").after(picker);
+  }
+  picker.innerHTML = "";
+  const options = document.createElement("div");
+  options.className = "difficulty-options";
+  options.setAttribute("role", "group");
+  options.setAttribute("aria-label", "Level difficulty");
+  for (const value of ["easy", "hard"]) {
+    const button = document.createElement("button");
+    button.className = "modal-btn " + (chosen === value ? "primary" : "secondary");
+    button.textContent = value === "easy" ? "Easy · 1× coins" : "Hard · 1.5× coins";
+    button.setAttribute("aria-pressed", String(chosen === value));
+    button.disabled = !!savedAttempt;
+    button.onclick = () => { P.journeyDifficulty = value; persist(); showLevelIntro(n); };
+    options.appendChild(button);
+  }
+  picker.appendChild(options);
+  const note = document.createElement("p");
+  note.className = "difficulty-note";
+  const firstClear = !(P.levelResults[n] && P.levelResults[n].stars > 0);
+  note.textContent = (savedAttempt ? "Paused attempt: " + (chosen === "legacy" ? "Original rules" : chosen === "hard" ? "Hard" : "Easy") + ". Resume or restart with these rules. " : chosen === "hard" ? "Plan ahead: tighter moves and less forgiving pieces. " : "More moves, fewer stones and forgiving pieces. ") + "Level reward: " + journeyReward(spec, firstClear) + " coins" + (firstClear ? "." : " (replay).");
+  picker.appendChild(note);
+  if (savedAttempt) {
+    const change = document.createElement("button");
+    change.className = "modal-btn secondary";
+    change.textContent = "Discard attempt & choose difficulty";
+    change.onclick = () => { P.session = null; persist(); showLevelIntro(n); };
+    picker.appendChild(change);
+  }
   document.getElementById("intro-title").innerHTML =
     "Level " + n + (spec.type !== "standard"
-      ? ' <span class="level-badge ' + spec.type + '">' + spec.type + "</span>"
+      ? ' <span class="level-badge ' + spec.type + '">' + (spec.type === "hard" ? "Challenge" : spec.type) + "</span>"
       : "");
   document.getElementById("intro-moves").textContent =
     spec.moveLimit ? spec.moveLimit + " moves" : "No move limit — take your time";
@@ -4532,7 +4620,7 @@ function showLevelIntro(n) {
     restart.onclick = () => {
       P.session = null;                  // deliberate reset — discard the attempt
       scrim.classList.remove("open");
-      startLevel(n);
+      startLevelSpec(spec);
     };
     const resume = document.createElement("button");
     resume.className = "modal-btn primary";
@@ -4550,7 +4638,7 @@ function showLevelIntro(n) {
     play.textContent = "Play";
     play.onclick = () => {
       scrim.classList.remove("open");
-      startLevel(n);
+      startLevel(n, spec.difficulty || "legacy");
     };
     btns.appendChild(play);
   }
@@ -4589,9 +4677,11 @@ function levelWin() {
 
   const prev = P.levelResults[level.id] || { stars: 0, highScore: 0 };
   const firstClear = prev.stars === 0;
-  const reward = firstClear
-    ? level.rewards.coins
-    : Math.max(5, Math.round(level.rewards.coins * 0.25));
+  const reward = journeyReward(level, firstClear);
+  if (!P.difficultyResults || typeof P.difficultyResults !== "object") P.difficultyResults = {};
+  const resultKey = level.id + ":" + (level.difficulty || "legacy");
+  const previousDifficulty = P.difficultyResults[resultKey] || { stars: 0, highScore: 0 };
+  P.difficultyResults[resultKey] = { stars: Math.max(stars, previousDifficulty.stars), highScore: Math.max(levelScore, previousDifficulty.highScore) };
   P.levelResults[level.id] = {
     stars: Math.max(stars, prev.stars),
     highScore: Math.max(levelScore, prev.highScore),
@@ -4600,7 +4690,7 @@ function levelWin() {
   P.totals.levelsWon++;
   const runCoins = runCoinsEarned;                 // NET: in-run coins for the server grant
   runCoinsEarned = 0;
-  netEconomy("level-complete", { level: level.id, stars, score: levelScore, runCoins });
+  netEconomy("level-complete", { level: level.id, stars, score: levelScore, runCoins, difficulty: level.difficulty || "legacy", idemKey: idemKey() });
   awardCoins(reward);                              // optimistic; server balance adopted on reply
   celebrateBoard();                                // gold wave across the board...
   setTimeout(maybePromptName, 900);                // after ~2 wins, invite a name
@@ -4707,7 +4797,7 @@ function showLevelEnd(won, info) {
       scrim.classList.remove("open");
       // a daily must retry as THE daily (same date seed, no map progression)
       if (level && level.isDaily) startLevelSpec(level);
-      else startLevel(level.id);
+      else startLevelSpec(level);
     };
     if (canContinue) {
       const cont = document.createElement("button");
@@ -4866,8 +4956,14 @@ function renderMap() {
       const bottomY = zs[0] === 0 ? H : boundary(zs[0] - 1);
       const art = document.createElement("div");
       art.className = "world-art";
-      art.style.top = topY + "px";
-      art.style.height = (bottomY - topY) + "px";
+      const fade = 220;
+      const artTop = Math.max(0, topY - fade);
+      const artBottom = Math.min(H, bottomY + fade);
+      art.style.top = artTop + "px";
+      art.style.height = (artBottom - artTop) + "px";
+      const mask = "linear-gradient(to bottom, " + (topY === 0 ? "#000 0px" : "transparent 0px, #000 " + (fade * 2) + "px") + ", " + (bottomY === H ? "#000 100%" : "#000 calc(100% - " + (fade * 2) + "px), transparent 100%") + ")";
+      art.style.maskImage = mask;
+      art.style.webkitMaskImage = mask;
       art.style.backgroundImage = `url("${WORLD_ART[world]}"), ` +
         `linear-gradient(180deg, ${ZONES[zs[zs.length - 1] % ZONES.length].sky}, ${ZONES[zs[0] % ZONES.length].sky})`;
       path.appendChild(art);
@@ -4889,8 +4985,9 @@ function renderMap() {
     const top = boundaryY(z);
     const band = document.createElement("div");
     band.className = "map-zone world-" + zone.world;
-    band.style.top = top + "px";
-    band.style.height = (bottom - top) + "px";
+    band.style.top = (top - 100) + "px";
+    band.style.height = (bottom - top + 200) + "px";
+    band.style.maskImage = band.style.webkitMaskImage = "linear-gradient(to bottom, transparent, #000 160px, #000 calc(100% - 160px), transparent)";
     // Bands carry only the translucent sky washes now — the artwork lives
     // on one continuous .world-art layer per 50-level world (added below),
     // so there are no within-world seams and any art aspect works (cover).
@@ -5061,10 +5158,20 @@ function renderMap() {
     node.style.left = xFor(n) + "%";
     node.style.top = yFor(n) + "px";
     node.textContent = n;
+    const hardResult = P.difficultyResults && P.difficultyResults[n + ":hard"];
+    if (hardResult && hardResult.stars > 0) {
+      node.classList.add("hard-cleared");
+      node.title = "Level " + n + " · Hard completed";
+      const badge = document.createElement("span");
+      badge.className = "hard-complete-badge";
+      badge.textContent = "H";
+      badge.setAttribute("aria-label", "Hard completed");
+      node.appendChild(badge);
+    }
     if (type === "hard" || type === "boss") {
       const b = document.createElement("div");
       b.className = "node-type";
-      b.textContent = type;
+      b.textContent = type === "hard" ? "Challenge" : type;
       node.appendChild(b);
     }
     if (state !== "locked") {
